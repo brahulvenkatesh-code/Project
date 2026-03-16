@@ -1,0 +1,73 @@
+{
+  "trinity_metadata": {
+    "schema_version": "1.0",
+    "generated_by": "Trinity Evaluation Pipeline",
+    "report_id": "TRN-2024-NLP-003",
+    "evaluation_date": "2024-03-15T14:00:00Z",
+    "model_type": "multiclass_classification"
+  },
+  "model_info": {
+    "name": "support-ticket-classifier-v1",
+    "version": "1.0.3",
+    "framework": "huggingface",
+    "algorithm": "BERT-base-finetuned",
+    "task": "multiclass_classification",
+    "target_variable": "ticket_category",
+    "num_classes": 8,
+    "class_labels": ["billing", "technical", "account", "delivery", "returns", "product_info", "escalation", "other"],
+    "feature_count": 1,
+    "training_samples": 95000,
+    "test_samples": 12000
+  },
+  "performance_metrics": {
+    "accuracy": 0.8832,
+    "macro_f1": 0.7941,
+    "weighted_f1": 0.8798,
+    "macro_precision": 0.8012,
+    "macro_recall": 0.7881,
+    "cohen_kappa": 0.8541,
+    "top_2_accuracy": 0.9612
+  },
+  "per_class_metrics": {
+    "billing":      { "precision": 0.921, "recall": 0.934, "f1": 0.927, "support": 1820 },
+    "technical":    { "precision": 0.874, "recall": 0.851, "f1": 0.862, "support": 2341 },
+    "account":      { "precision": 0.891, "recall": 0.903, "f1": 0.897, "support": 1654 },
+    "delivery":     { "precision": 0.812, "recall": 0.778, "f1": 0.795, "support": 980 },
+    "returns":      { "precision": 0.756, "recall": 0.712, "f1": 0.733, "support": 874 },
+    "product_info": { "precision": 0.698, "recall": 0.641, "f1": 0.668, "support": 763 },
+    "escalation":   { "precision": 0.934, "recall": 0.921, "f1": 0.927, "support": 421 },
+    "other":        { "precision": 0.621, "recall": 0.589, "f1": 0.605, "support": 1147 }
+  },
+  "drift_metrics": {
+    "feature_drift_score": 0.12,
+    "label_drift_score": 0.06,
+    "psi_score": 0.09,
+    "drift_status": "low",
+    "drifted_features": []
+  },
+  "latency_ms": {
+    "p50": 68,
+    "p95": 142,
+    "p99": 289,
+    "mean": 74
+  },
+  "generalization": {
+    "train_accuracy": 0.9421,
+    "test_accuracy": 0.8832,
+    "train_test_gap": 0.0589,
+    "cross_val_mean": 0.8791,
+    "cross_val_std": 0.0061
+  },
+  "confidence_analysis": {
+    "mean_confidence": 0.847,
+    "low_confidence_pct": 0.082,
+    "confidence_threshold": 0.70,
+    "flagged_for_review_pct": 0.082
+  },
+  "operational": {
+    "tokens_per_second": 1240,
+    "gpu_memory_mb": 2840,
+    "model_size_mb": 438,
+    "inference_batch_size": 32
+  }
+}

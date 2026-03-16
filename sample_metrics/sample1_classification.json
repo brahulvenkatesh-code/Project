@@ -1,0 +1,75 @@
+{
+  "trinity_metadata": {
+    "schema_version": "1.0",
+    "generated_by": "Trinity Evaluation Pipeline",
+    "report_id": "TRN-2024-CLS-001",
+    "evaluation_date": "2024-03-15T10:30:00Z",
+    "model_type": "classification"
+  },
+  "model_info": {
+    "name": "fraud-detector-v3",
+    "version": "3.2.1",
+    "framework": "scikit-learn",
+    "algorithm": "XGBoost",
+    "task": "binary_classification",
+    "target_variable": "is_fraud",
+    "feature_count": 47,
+    "training_samples": 850000,
+    "test_samples": 150000
+  },
+  "performance_metrics": {
+    "accuracy": 0.9712,
+    "precision": 0.8143,
+    "recall": 0.6891,
+    "f1_score": 0.7465,
+    "auc_roc": 0.9534,
+    "auc_pr": 0.8821,
+    "log_loss": 0.0821,
+    "matthews_corrcoef": 0.7312,
+    "false_positive_rate": 0.0041,
+    "false_negative_rate": 0.3109,
+    "specificity": 0.9959,
+    "balanced_accuracy": 0.8425
+  },
+  "confusion_matrix": {
+    "true_positive": 10337,
+    "true_negative": 136458,
+    "false_positive": 563,
+    "false_negative": 4642
+  },
+  "threshold_analysis": {
+    "optimal_threshold": 0.42,
+    "default_threshold": 0.5,
+    "threshold_sensitivity": "high"
+  },
+  "drift_metrics": {
+    "feature_drift_score": 0.23,
+    "label_drift_score": 0.08,
+    "psi_score": 0.18,
+    "drift_status": "moderate",
+    "drifted_features": ["transaction_amount", "merchant_category", "time_since_last_txn"]
+  },
+  "latency_ms": {
+    "p50": 12,
+    "p95": 47,
+    "p99": 134,
+    "mean": 18
+  },
+  "generalization": {
+    "train_accuracy": 0.9891,
+    "test_accuracy": 0.9712,
+    "train_test_gap": 0.0179,
+    "cross_val_mean": 0.9698,
+    "cross_val_std": 0.0043
+  },
+  "calibration": {
+    "brier_score": 0.0312,
+    "expected_calibration_error": 0.041,
+    "calibration_status": "acceptable"
+  },
+  "fairness": {
+    "demographic_parity_diff": 0.032,
+    "equalized_odds_diff": 0.041,
+    "fairness_status": "acceptable"
+  }
+}
