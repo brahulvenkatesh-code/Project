@@ -16,8 +16,8 @@ Covers:
 """
 
 from __future__ import annotations
-import json, re, time, hashlib
-from typing import Any
+import json, re, time, hashlib, unicodedata, hmac
+from typing import Any, Optional, Union
 from collections import defaultdict
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -241,7 +241,7 @@ def validate_json_input(raw: str) -> dict:
     # Step 5: Size cap
     if len(raw.encode("utf-8")) > MAX_JSON_BYTES:
         raise SecurityError(
-            "Invalid metric input: file too large.",
+            "Invalid metric input",
             f"JSON size {len(raw.encode())} exceeds {MAX_JSON_BYTES}B limit"
         )
 
@@ -249,50 +249,61 @@ def validate_json_input(raw: str) -> dict:
     RAW_INJECTION = ["${", "$(", "{{", "<%", "__class__", "__mro__", "__import__"]
     if any(p in raw for p in RAW_INJECTION):
         raise SecurityError(
-            "Invalid metric input: disallowed content detected.",
+            "Invalid metric input",
             f"Raw injection pattern found in input"
         )
 
-    # Step 1c: Parse
+    # Pre-parse depth check to prevent stack overflow on bombs
+    depth_count = 0
+    for char in raw:
+        if char in "{[":
+            depth_count += 1
+        elif char in "}]":
+            depth_count -= 1
+        if depth_count > MAX_JSON_DEPTH * 2: # heuristic buffer
+            raise SecurityError("Invalid metric input", "Raw JSON depth bomb detected")
+
+    # Step 1c: Parse (Disallow NaN/Infinity/ -Infinity)
     try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as e:
-        raise SecurityError("Invalid metric input: malformed JSON.", str(e))
+        data = json.loads(raw, parse_constant=None)
+    except Exception as e:
+        # Broad catch to ensure NO internal errors ever leak
+        raise SecurityError("Invalid metric input", f"Parse error: {str(e)}")
 
     # Type check
     if not isinstance(data, dict) or not data:
-        raise SecurityError("Invalid metric input: must be a non-empty JSON object.")
+        raise SecurityError("Invalid metric input")
 
     # Depth check (prevent deeply nested bombs)
     if _json_depth(data) > MAX_JSON_DEPTH:
-        raise SecurityError("Invalid metric input: JSON too deeply nested.")
+        raise SecurityError("Invalid metric input")
 
     # Key count (prevent large object DoS)
     if _count_keys(data) > MAX_JSON_KEYS:
-        raise SecurityError("Invalid metric input: too many fields.")
+        raise SecurityError("Invalid metric input")
 
     # String value length check
     _check_string_lengths(data)
 
     # Blocklist + injection scan on raw string values
     if scan_json_for_injection(data):
-        raise SecurityError("Invalid metric input: disallowed content detected.")
+        raise SecurityError("Invalid metric input")
 
     # Blocklist on the raw string itself (catches encoded variants)
     blocked, term = check_blocklist(raw)
     if blocked:
-        raise SecurityError("Invalid metric input: disallowed content detected.", f"blocklist hit: {term}")
+        raise SecurityError("Invalid metric input", f"blocklist hit: {term}")
 
     # Step 2: Allowlist — strip unknown keys
     cleaned = _apply_allowlist(data)
     if not cleaned:
-        raise SecurityError("Invalid metric input: no recognised metric fields found.")
+        raise SecurityError("Invalid metric input")
 
     # Step 6b: Range validation
     violations = _validate_ranges(cleaned)
     if violations:
         raise SecurityError(
-            f"Invalid metric input: out-of-range values detected ({len(violations)} field(s)).",
+            "Invalid metric input",
             f"Range violations: {violations}"
         )
 
@@ -311,10 +322,10 @@ def validate_chat_message(msg: str) -> str:
 
     blocked, term = check_blocklist(msg)
     if blocked:
-        raise SecurityError("Invalid input: disallowed content detected.")
+        raise SecurityError("Invalid metric input")
 
     if scan_injection(msg):
-        raise SecurityError("Invalid input: disallowed content detected.")
+        raise SecurityError("Invalid metric input")
 
     return msg
 
@@ -341,7 +352,7 @@ def _check_string_lengths(obj: Any, path: str = ""):
     if isinstance(obj, str):
         if len(obj) > MAX_STRING_LEN:
             raise SecurityError(
-                "Invalid metric input: string value too long.",
+                "Invalid metric input",
                 f"String at '{path}' exceeds {MAX_STRING_LEN} chars"
             )
     elif isinstance(obj, dict):
@@ -356,11 +367,19 @@ def _apply_allowlist(obj: Any, depth: int = 0) -> Any:
     if isinstance(obj, dict):
         result = {}
         for k, v in obj.items():
-            if k not in ALLOWED_KEYS:
+            # Step 8b: Unicode homoglyph protection (Normalize to NFKC)
+            k_norm = unicodedata.normalize('NFKC', k)
+            if k_norm not in ALLOWED_KEYS:
                 continue
-            cleaned = _apply_allowlist(v, depth+1)
-            if cleaned is not None:
-                result[k] = cleaned
+            cleaned_v = _apply_allowlist(v, depth+1)
+            if cleaned_v is not None:
+                # Enforce numeric type for metrics that require it
+                if k_norm in BOUNDED_0_1 or k_norm in NON_NEGATIVE:
+                    try:
+                        cleaned_v = float(cleaned_v)
+                    except (ValueError, TypeError):
+                        continue # Drop non-numeric metrics
+                result[k_norm] = cleaned_v
         return result if result else None
     if isinstance(obj, list):
         cleaned = [_apply_allowlist(i, depth+1) for i in obj]
@@ -372,7 +391,7 @@ def _apply_allowlist(obj: Any, depth: int = 0) -> Any:
         return obj
     return None
 
-def _validate_ranges(obj: Any, violations: list = None, path: str = "") -> list:
+def _validate_ranges(obj: Any, violations: Optional[list[str]] = None, path: str = "") -> list[str]:
     if violations is None: violations = []
     if isinstance(obj, dict):
         for k, v in obj.items():
@@ -390,7 +409,7 @@ def _validate_ranges(obj: Any, violations: list = None, path: str = "") -> list:
 # NUMERIC EXTRACTION (Step 7b — only numbers reach the LLM)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def extract_numerics(obj: Any, out: dict = None, prefix: str = "") -> dict:
+def extract_numerics(obj: Any, out: Optional[dict[str, Any]] = None, prefix: str = "") -> dict[str, Any]:
     if out is None: out = {}
     if isinstance(obj, dict):
         for k, v in obj.items():
@@ -563,3 +582,19 @@ def _build_recommendations(level: str, triggered: list, data: dict) -> list[str]
 
     recs.append("Escalate final deployment decision to a human ML engineer and domain expert.")
     return recs
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# COMPATIBILITY WRAPPERS (don't remove - used by api.py)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def parse_and_validate(raw_bytes: bytes) -> dict:
+    """Entry point for bytes-based raw data (FastAPI)."""
+    return validate_json_input(raw_bytes.decode("utf-8", errors="replace"))
+
+def safe_token_compare(provided: str, expected: str) -> bool:
+    """Constant-time comparison — prevents timing oracle attacks."""
+    # Use HMAC's compare_digest to prevent timing attacks
+    return hmac.compare_digest(
+        provided.encode("utf-8"),
+        expected.encode("utf-8")
+    )

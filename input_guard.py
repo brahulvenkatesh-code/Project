@@ -1,105 +1,69 @@
-"""
-input_guard.py — 6-Layer Input Guard
-Blocks 99.9% of prompt injection attacks before they reach the LLM.
-
-Layer 1: Length limit
-Layer 2: Blocklist (OWASP Top 10 injection patterns)
-Layer 3: Delimiter protection
-Layer 4: Character whitelist
-Layer 5: Semantic / intent filter
-Layer 6: Context allowlist (ML metrics domain only)
-"""
-
 import re
-from security import SecurityError
+import unicodedata
 
-MAX_INPUT_LEN = 500
-
-# Layer 2: Injection pattern blocklist
-INJECTION_PATTERNS = [
-    r"ignore.*previous", r"forget.*instructions", r"forget.*your", r"forget.*rule", r"forget.*rules", r"override.*rules",
-    r"new.*role", r"act.*as", r"you\s+are\s+now", r"system\s+prompt",
-    r"exec\s*\(", r"import\s+", r"curl\s+", r"rm\s+-rf", r"sudo\s+",
-    r"<\s*script", r"javascript\s*:", r"dan\s*:", r"developer\s+mode",
-    r"jailbreak", r"base64", r"eval\s*\(", r"__import__",
-    r"reveal.*prompt", r"repeat.*instructions", r"show.*config",
-    r"bypass.*filter", r"disable.*safety", r"enable.*mode",
+# Layer 1: Direct instruction injection patterns
+_INJECTION_PATTERNS = [
+    r"ignore\s+(all\s+)?(previous|prior|above)\s+instructions?",
+    r"forget\s+(everything|all|your)\s+(you|instructions?|context)",
+    r"(new|your)\s+(role|persona|identity|task)\s+is",
+    r"\[?(system|inst|s)\]?\s*:",
+    r"(jailbreak|dan|dude|developer\s+mode|do\s+anything\s+now)",
+    r"pretend\s+(you\s+are|to\s+be|you're)",
+    r"act\s+as\s+(if\s+you\s+are|a|an)",
+    r"repeat\s+(your\s+)?(system\s+)?prompt",
+    r"reveal\s+(your|the)\s+(instructions?|prompt|system)",
 ]
 
-# Layer 5: Risky intent phrases
-RISKY_PHRASES = [
-    "change your", "new instructions", "stop following",
-    "from now on", "pretend you", "act like", "your real",
-    "true purpose", "hidden mode", "no restrictions",
-]
+_COMPILED = [re.compile(p, re.IGNORECASE | re.UNICODE) for p in _INJECTION_PATTERNS]
 
-# Layer 6: ML metrics context allowlist — ML-specific terms only
-CONTEXT_PATTERN = re.compile(
-    r"\b(f1|precision|recall|auc|roc|accuracy|risk|deploy|deployment|metric|"
-    r"drift|psi|model|threshold|confusion|false.positive|false.negative|"
-    r"performance|calibration|fairness|latency|overfitting|overfit|"
-    r"classification|regression|training|train|test|gap|validation|prediction|"
-    r"score|matrix|imbalance|bias|explainability|nanobot|"
-    r"feature|weight|loss|entropy|gradient|epoch|batch|"
-    r"true.positive|true.negative|fp.rate|fn.rate|baseline|benchmark|"
-    r"remediation|regulatory|nist|eu|dpdp|compliance|"
-    r"top.\d|explain|analysis|analyse|analyze|report|summary|"
-    r"concern|indicate|mean|show|describe|interpret|assess)\b",
-    re.IGNORECASE
-)
+# Layer 2: Encoding bypass normalization
+def _normalize_input(text: str) -> str:
+    return unicodedata.normalize("NFKC", text).lower()
 
-# Safe characters whitelist
-SAFE_CHARS = set(
-    "abcdefghijklmnopqrstuvwxyz"
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    "0123456789 .,!?%-()?'"
-)
+# Layer 3: Token length gate
+MAX_CHAT_INPUT = 500
 
+# Layer 4: Safe character filter (allow alphanumeric + basic punctuation)
+# This prevents obscure encoding bypasses while allowing natural questions.
+_SAFE_CHARS_RE = re.compile(r"[^a-zA-Z0-9\s\.\?\,\!\-\_\(\)\[\]\"\'\:\%\$\#\@\*\+]")
 
-def unbreakable_input_guard(raw_input: str) -> str:
+def guard_chat_input(raw: str) -> str:
     """
-    6-layer input guard. Returns sanitised string or raises SecurityError.
-    Blocks 99.9% of prompt injection attacks.
+    Returns sanitized natural language or raises ValueError.
+    Maintains 5 layers of defense while easing usability.
     """
-    # Layer 1: Length limit
-    if len(raw_input) > MAX_INPUT_LEN:
-        raise SecurityError(
-            f"Input too long (max {MAX_INPUT_LEN} characters).",
-            f"Input length {len(raw_input)} exceeds limit"
-        )
+    # Layer 3: length gate
+    if not raw or len(raw) > MAX_CHAT_INPUT:
+        raise ValueError("Invalid metric input: too long or empty")
 
-    # Layer 2: Injection pattern blocklist
-    for pattern in INJECTION_PATTERNS:
-        if re.search(pattern, raw_input, re.IGNORECASE):
-            raise SecurityError(
-                "Invalid input: disallowed content detected.",
-                f"Injection pattern matched: {pattern}"
-            )
+    # Layer 2: Encoding bypass normalization
+    normalized = _normalize_input(raw)
 
-    # Layer 3: Delimiter stripping (prevents prompt boundary attacks)
-    cleaned = raw_input
-    for delimiter in ["###", "---", "===", "```", "<<<", ">>>", "|||"]:
-        cleaned = cleaned.replace(delimiter, " ")
+    # Layer 1: injection pattern check
+    for pattern in _COMPILED:
+        if pattern.search(normalized):
+            raise ValueError("Invalid metric input: injection detected")
 
-    # Layer 4: Character whitelist
-    cleaned = "".join(c if c in SAFE_CHARS else " " for c in cleaned)
+    # Layer 5: blocklist terms (covers things regex misses)
+    blocklist = [
+        "base64", "hex encode", "rot13", "__import__",
+        "eval(", "exec(", "os.system", "subprocess",
+        "drop table", "rm -rf", "dan mode", "developer mode"
+    ]
+    for term in blocklist:
+        if term in normalized:
+            raise ValueError("Invalid metric input: blocked term")
 
-    # Layer 5: Semantic / intent filter
-    lower = cleaned.lower()
-    for phrase in RISKY_PHRASES:
-        if phrase in lower:
-            raise SecurityError(
-                "Invalid input: disallowed content detected.",
-                f"Risky phrase detected: {phrase}"
-            )
+    # Layer 6: Safe character filter
+    # Remove any characters not in our safe set to block obscure exploit payloads
+    sanitized = _SAFE_CHARS_RE.sub(" ", raw)
+    # Collapse multiple spaces
+    sanitized = " ".join(sanitized.split())
 
-    # Layer 6: Context allowlist — must be about ML metrics (or a simple greeting)
-    greetings = {"hi", "hello", "hey", "hola", "sup", "greetings"}
-    if not CONTEXT_PATTERN.search(cleaned) and not any(g in lower.split() for g in greetings):
-        raise SecurityError(
-            "I can only answer questions about the loaded ML metrics. "
-            "Please ask about accuracy, F1, precision, recall, AUC, drift, or deployment risk.",
-            "Off-topic input — no ML context or greeting found"
-        )
+    if not sanitized:
+        raise ValueError("Invalid metric input: no safe characters")
 
-    return cleaned.strip()
+    return sanitized
+
+# Compatibility alias for app.py
+unbreakable_input_guard = guard_chat_input

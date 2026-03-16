@@ -250,6 +250,9 @@ def run_weighted_risk(data: dict) -> dict:
         "metrics_used":      m,
     }
 
+# Compatibility alias for api.py
+calculate_risk = run_weighted_risk
+
 
 def _extract_metrics(data: dict) -> dict:
     """Extract the 4 key metrics, fall back to 0 if not present."""

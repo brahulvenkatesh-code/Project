@@ -63,12 +63,11 @@ Write ALL sections below. Do not abbreviate or skip any.
 2-3 paragraphs summarising overall model performance and deployment readiness with actual values.
 
 ## Metric Explanations
-For EVERY metric in the JSON:
-**[Metric Name] = [value]**
-- Definition: what it measures
-- Benchmark: Poor/Fair/Good/Excellent with thresholds
-- Assessment: what this specific value means
-- Deployment impact: what this means for production
+Present EVERY metric from the JSON in a beautifully formatted, single Markdown table for maximum readability:
+| Metric | Value | Definition | Benchmark & Threshold | Assessment | Deployment Impact |
+|--------|-------|------------|-----------------------|------------|-------------------|
+| ...    | ...   | ...        | ...                   | ...        | ...               |
+(Do not use bullet points for this section; strictly use the table format.)
 
 ## Regulatory & Compliance Analysis
 For each threshold breached:

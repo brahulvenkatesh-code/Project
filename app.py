@@ -38,6 +38,51 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ── Security Hardening (Ngrok + Host Validation) ──────────────────────────────
+_headers = getattr(st.context, "headers", {})
+
+# 1. Block ngrok-skip-browser-warning abuse
+if "ngrok-skip-browser-warning" in _headers:
+    st.error("Invalid Request Header.")
+    st.stop()
+
+# 2. Host Header Validation
+_allowed_host = os.environ.get("ALLOWED_HOST", "")
+_host = _headers.get("Host", "").split(":")[0].lower()  # ignore port
+if _allowed_host and _host:
+    if not (_host.endswith(".ngrok-free.app") or 
+            _host.endswith(".ngrok-free.dev") or 
+            _host == "localhost" or 
+            _host == "127.0.0.1" or 
+            _host == _allowed_host.split(":")[0].lower()):
+        st.error(f"Invalid Host: {_host}. Please check your ALLOWED_HOST config.")
+        st.stop()
+
+# 4. Sensitive Path Protection
+_ref = _headers.get("Referer", "").lower()
+_qp = str(st.query_params).lower()
+_sensitive_paths = [".env", ".git", "config", "admin", "__pycache__"]
+if any(p in _ref for p in _sensitive_paths) or any(p in _qp for p in _sensitive_paths):
+    st.error("Security policy violation: restricted path accessed.")
+    st.stop()
+
+# 3. Request Rate Tracking (20 interactions / 60s)
+if "req_history" not in st.session_state:
+    st.session_state.req_history = []
+_now = time.time()
+st.session_state.req_history = [t for t in st.session_state.req_history if _now - t < 60]
+if len(st.session_state.req_history) >= 20:
+    st.error("Rate limit exceeded. Too many interactions in 60 seconds.")
+    st.stop()
+st.session_state.req_history.append(_now)
+
+# Category 4: Content-Security-Policy (CSP)
+st.markdown("""
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' https://fonts.gstatic.com;">
+""", unsafe_allow_html=True)
+
+# Host header protection removed for simplicity
+
 # ── Custom CSS ────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
@@ -53,7 +98,7 @@ st.markdown("""
   .nb-header {
     display: flex; align-items: center; gap: 12px;
     padding: 14px 20px; background: #13161e;
-    border-bottom: 1px solid #252a38; margin: -1.5rem -2rem 1.5rem;
+    border-bottom: 1px solid #252a38; margin: 0 -2rem 1.5rem;
   }
   .nb-dot { width:10px;height:10px;border-radius:50%;background:#00e5ff;
     animation: pulse 2s infinite; }
@@ -174,8 +219,27 @@ def run_async(coro):
         logger.error(f"Async error: {e}")
         raise
 
-def load_and_validate(raw_json: str) -> bool:
-    """Full validation pipeline. Returns True on success."""
+def load_and_validate(raw_json: str, file_name: str = "source.json") -> bool:
+    """Full validation pipeline with SHA256 deduplication."""
+    import hashlib
+    
+    file_hash = hashlib.sha256(raw_json.encode("utf-8")).hexdigest()
+    
+    if "json_store" not in st.session_state:
+        st.session_state.json_store = {}
+        
+    if file_hash in st.session_state.json_store:
+        cached = st.session_state.json_store[file_hash]
+        st.session_state.metrics_raw   = raw_json
+        st.session_state.metrics_clean = cached["data"]
+        st.session_state.metrics_llm   = cached.get("data_llm", build_llm_safe_payload(cached["data"]))
+        st.session_state.risk          = cached["risk"]
+        st.session_state.analyzed      = False
+        st.session_state.analysis      = None
+        log_event("loaded_from_cache", f"hash={file_hash[:8]}")
+        st.toast(f"Loaded from cache: {file_hash[:8]}")
+        return True
+
     try:
         check_rate_limit(st.session_state.session_id)
     except SecurityError as e:
@@ -193,13 +257,21 @@ def load_and_validate(raw_json: str) -> bool:
     llm_payload = build_llm_safe_payload(cleaned)
     risk        = run_weighted_risk(cleaned)
 
+    st.session_state.json_store[file_hash] = {
+        "file": file_name,
+        "data": cleaned,
+        "data_llm": llm_payload,
+        "risk": risk,
+        "timestamp": datetime.now(UTC).isoformat()
+    }
+
     st.session_state.metrics_raw   = raw_json
     st.session_state.metrics_clean = cleaned
     st.session_state.metrics_llm   = llm_payload
     st.session_state.risk          = risk
     st.session_state.analyzed      = False
     st.session_state.analysis      = None
-    log_event("loaded", f"risk={risk['level']}, keys={list(cleaned.keys())[:5]}")
+    log_event("loaded", f"risk={risk['level']}, hash={file_hash[:8]}")
     return True
 
 SAMPLE_JSONS = {
@@ -271,12 +343,14 @@ with st.sidebar:
                              disabled=not st.session_state.analyzed)
 
     if load_btn and raw_input:
-        if load_and_validate(raw_input):
+        fname = uploaded.name if (input_mode == "Upload file" and uploaded) else "pasted_or_sample.json"
+        if load_and_validate(raw_input, fname):
             st.success("✅ Metrics loaded and validated.")
 
     if swap_btn and raw_input:
+        fname = uploaded.name if (input_mode == "Upload file" and uploaded) else "pasted_or_sample.json"
         st.session_state.swap_count += 1
-        if load_and_validate(raw_input):
+        if load_and_validate(raw_input, fname):
             st.success(f"✅ Source swapped (#{st.session_state.swap_count}). Re-run analysis.")
 
     if not raw_input and load_btn:
@@ -469,20 +543,20 @@ with tab_overview:
         from xai import confusion_matrix_chart, radar_chart
         fig = confusion_matrix_chart(data)
         if fig:
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
         else:
             fig = radar_chart(data)
             if fig:
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
     with viz_col2:
         from xai import latency_chart, drift_gauge
         fig = drift_gauge(data)
         if fig:
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
         else:
             fig = latency_chart(data)
             if fig:
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -506,7 +580,7 @@ with tab_xai:
                "Longer bar = higher influence on the final risk score.")
     fig = shap_feature_importance(data)
     if fig:
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     else:
         st.info("Insufficient metric signals for SHAP analysis.")
 
@@ -518,7 +592,7 @@ with tab_xai:
                "deployment readiness at the decision boundary.")
     fig = lime_boundary_explanation(data)
     if fig:
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     else:
         st.info("Insufficient data for LIME explanation.")
 
@@ -536,7 +610,7 @@ with tab_xai:
             if "❌" in str(val): return "color: #E24B4A"
             return ""
         styled = df.style            .map(color_status, subset=["Status"])            .background_gradient(subset=["Weight"], cmap="RdYlGn", vmin=-1, vmax=1)            .format({"Value": "{:.4f}", "Weight": "{:+.3f}"})
-        st.dataframe(styled, use_container_width=True, hide_index=True)
+        st.dataframe(styled, width="stretch", hide_index=True)
     else:
         st.info("No ELI5-compatible metrics in loaded JSON.")
 
@@ -550,13 +624,13 @@ with tab_xai:
     with curve_col1:
         fig = roc_curve_chart(data)
         if fig:
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
         else:
             st.info("AUC-ROC not present in loaded metrics.")
     with curve_col2:
         fig = pr_curve_chart(data)
         if fig:
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
         else:
             st.info("Precision/Recall not present in loaded metrics.")
 
@@ -567,7 +641,7 @@ with tab_xai:
     if fig:
         st.markdown('<div class="section-title">Per-Class Performance</div>', unsafe_allow_html=True)
         st.caption("Precision, Recall and F1 breakdown per class — identifies which classes are underperforming.")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -719,12 +793,25 @@ with tab_chat:
         msg = msg.strip()
         if not msg:
             return
+            
+        # 4.3 Chat Rate limiting: strictly 1 message per second
+        _chat_now = time.time()
+        _last_msg_time = st.session_state.get("_last_msg_time", 0)
+        if _chat_now - _last_msg_time < 1.0:
+            st.error("Rate limit exceeded: 1 message per second allowed.")
+            return
+        st.session_state._last_msg_time = _chat_now
+        
         try:
             check_rate_limit(st.session_state.session_id)
             safe_msg = unbreakable_input_guard(msg)
         except SecurityError as e:
             st.error(str(e.public_msg))
             log_event("chat_blocked", e.internal, error=True)
+            return
+        except ValueError as e:
+            st.error(str(e))
+            log_event("chat_blocked", str(e), error=True)
             return
 
         st.session_state.chat_history.append({"role": "user", "content": safe_msg})
@@ -815,7 +902,7 @@ with tab_chat:
         cols = st.columns(2)
         for i, q in enumerate(suggestions):
             with cols[i % 2]:
-                if st.button(q, key=f"sugg_{i}", use_container_width=True):
+                if st.button(q, key=f"sugg_{i}", width="stretch"):
                     st.session_state["_pending_chat"] = q
                     st.rerun()
 
@@ -829,7 +916,7 @@ with tab_chat:
                 label_visibility="collapsed",
             )
         with col_btn:
-            send = st.form_submit_button("Send", use_container_width=True)
+            send = st.form_submit_button("Send", width="stretch")
 
     if send and user_input:
         send_message(user_input)
