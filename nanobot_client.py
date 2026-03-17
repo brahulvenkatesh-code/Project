@@ -14,7 +14,7 @@ from security import MAX_LLM_TOKENS
 logger = logging.getLogger("ps2.nanobot")
 
 # GEMINI_KEY lookup moved inside call_nanobot to ensure it picks up .env changes immediately
-GEMINI_MODEL     = "gemini-1.5-flash"
+GEMINI_MODEL     = "gemini-flash-latest"
 MAX_SYSTEM_CHARS = 6_000
 
 

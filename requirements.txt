@@ -13,7 +13,7 @@ lime>=0.2.0.1
 eli5>=0.13.0
 markdown2>=2.4.13
 google-genai>=1.10.0
-# pyngrok removed for production deployment
+pyngrok>=7.2.0
 requests>=2.32.3
 slowapi>=0.1.9
 websockets>=12.0
