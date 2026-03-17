@@ -13,7 +13,7 @@ from security import MAX_LLM_TOKENS
 
 logger = logging.getLogger("ps2.nanobot")
 
-GEMINI_KEY       = os.environ.get("GOOGLE_API_KEY", "").strip()
+# GEMINI_KEY lookup moved inside call_nanobot to ensure it picks up .env changes immediately
 GEMINI_MODEL     = "gemini-flash-latest"
 MAX_SYSTEM_CHARS = 6_000
 
@@ -28,11 +28,15 @@ async def call_nanobot(system: str, user_message: str, max_tokens: int = MAX_LLM
     """
     NanoBot orchestrates this call to the Gemini API.
     """
-    if not GEMINI_KEY:
+    key = os.environ.get("GOOGLE_API_KEY", "").strip()
+    if not key:
         raise ValueError("GOOGLE_API_KEY is not set in .env")
 
+    # Safe log to verify the key being used (first 4 and last 4 chars only)
+    logger.info(f"NanoBot calling Gemini with key: {key[:4]}...{key[-4:]}")
+
     try:
-        client = genai.Client(api_key=GEMINI_KEY)
+        client = genai.Client(api_key=key)
 
         response = await client.aio.models.generate_content(
             model=GEMINI_MODEL,
