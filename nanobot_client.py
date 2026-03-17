@@ -74,6 +74,50 @@ async def call_nanobot(system: str, user_message: str, max_tokens: int = MAX_LLM
         raise
 
 
+async def call_nanobot_chat(system: str, messages: list, max_tokens: int = MAX_LLM_TOKENS) -> str:
+    """
+    Agentic Chat function inspired by HKUDS/nanobot memory engine.
+    Maintains proper role mappings ('user', 'assistant') and multi-turn context 
+    instead of string concatenation.
+    """
+    keys = {
+        "gemini": os.environ.get("GOOGLE_API_KEY", "").strip(),
+        "groq":   os.environ.get("GROQ_API_KEY", "").strip()
+    }
+
+    if not keys["gemini"]:
+        raise ValueError("GOOGLE_API_KEY is not set in .env")
+
+    # --- TIER 1: Gemini 3 Flash ---
+    try:
+        return await _execute_gemini_chat(keys["gemini"], GEMINI_3_FLASH, system, messages, max_tokens)
+    except Exception as e:
+        if _is_quota_exhausted(e):
+            logger.warning(f"Tier 1 ({GEMINI_3_FLASH}) quota hit. Trying Tier 2 (Groq)...")
+        else:
+            logger.error(f"Tier 1 Error: {e}")
+            raise
+
+    # --- TIER 2: Groq Llama 3.3 ---
+    if keys["groq"]:
+        try:
+            return await _execute_groq_chat(keys["groq"], GROQ_LLAMA_3_3, system, messages, max_tokens)
+        except Exception as e:
+            if _is_quota_exhausted(e):
+                logger.warning(f"Tier 2 ({GROQ_LLAMA_3_3}) quota/rate hit. Trying Tier 3 (Gemini 1.5)...")
+            else:
+                logger.error(f"Tier 2 Error: {e}")
+    else:
+        logger.warning("Groq key missing, skipping Tier 2.")
+
+    # --- TIER 3: Gemini 1.5 Flash ---
+    try:
+        return await _execute_gemini_chat(keys["gemini"], GEMINI_1_5_FLASH, system, messages, max_tokens)
+    except Exception as e:
+        logger.error(f"Tier 3 Error (Final Fallback): {e}")
+        raise
+
+
 def _is_quota_exhausted(e: Exception) -> bool:
     msg = str(e).lower()
     return any(x in msg for x in ["429", "quota", "exhausted", "rate_limit", "rate limit"])
@@ -95,6 +139,27 @@ async def _execute_gemini(api_key: str, model: str, system: str, user_message: s
     return response.text
 
 
+async def _execute_gemini_chat(api_key: str, model: str, system: str, messages: list, max_tokens: int) -> str:
+    client = genai.Client(api_key=api_key)
+    formatted_messages = []
+    for m in messages:
+        role = "user" if m["role"] == "user" else "model"
+        formatted_messages.append({"role": role, "parts": [{"text": m["content"]}]})
+        
+    response = await client.aio.models.generate_content(
+        model=model,
+        contents=formatted_messages,
+        config=types.GenerateContentConfig(
+            system_instruction=_truncate_system(system),
+            max_output_tokens=max_tokens,
+            temperature=0.1,
+        ),
+    )
+    if not response.text:
+        raise ValueError(f"Empty response from Gemini ({model})")
+    return response.text
+
+
 async def _execute_groq(api_key: str, model: str, system: str, user_message: str, max_tokens: int) -> str:
     client = AsyncGroq(api_key=api_key)
     chat_completion = await client.chat.completions.create(
@@ -102,6 +167,24 @@ async def _execute_groq(api_key: str, model: str, system: str, user_message: str
             {"role": "system", "content": _truncate_system(system)},
             {"role": "user", "content": user_message},
         ],
+        model=model,
+        temperature=0.1,
+        max_tokens=max_tokens,
+    )
+    res = chat_completion.choices[0].message.content
+    if not res:
+        raise ValueError(f"Empty response from Groq ({model})")
+    return res
+
+
+async def _execute_groq_chat(api_key: str, model: str, system: str, messages: list, max_tokens: int) -> str:
+    client = AsyncGroq(api_key=api_key)
+    groq_msgs = [{"role": "system", "content": _truncate_system(system)}]
+    for m in messages:
+        groq_msgs.append({"role": m["role"], "content": m["content"]})
+        
+    chat_completion = await client.chat.completions.create(
+        messages=groq_msgs,
         model=model,
         temperature=0.1,
         max_tokens=max_tokens,

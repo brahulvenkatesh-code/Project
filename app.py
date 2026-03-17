@@ -128,8 +128,20 @@ st.markdown("""
 
   /* Metric card */
   .metric-card {
-    background:#13161e;border:1px solid #252a38;border-radius:10px;
-    padding:16px 20px;margin:6px 0;
+    background: rgba(19, 22, 30, 0.65);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    padding: 16px 20px;
+    margin: 6px 0;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+  }
+  .metric-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(0, 229, 255, 0.3);
   }
   .metric-card h4 { margin:0 0 4px;font-size:13px;color:#6b7694;
     font-family:'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.08em; }
@@ -138,39 +150,59 @@ st.markdown("""
 
   /* Chat bubbles */
   .chat-user { background:#2d1f5e;border-radius:12px 12px 3px 12px;
-    padding:10px 14px;margin:6px 0 6px 40px;font-size:13px;line-height:1.6; }
-  .chat-bot { background:#13161e;border:1px solid #252a38;
+    padding:10px 14px;margin:6px 0 6px 40px;font-size:13px;line-height:1.6;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+  .chat-bot { background:rgba(19, 22, 30, 0.8);backdrop-filter:blur(8px);border:1px solid rgba(255, 255, 255, 0.08);
     border-radius:12px 12px 12px 3px;padding:10px 14px;
-    margin:6px 40px 6px 0;font-size:13px;line-height:1.6; }
+    margin:6px 40px 6px 0;font-size:13px;line-height:1.6;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
   .chat-label { font-family:'IBM Plex Mono',monospace;font-size:10px;
     color:#6b7694;margin-bottom:3px; }
 
   /* Section divider */
   .section-title { font-size:12px;font-weight:600;text-transform:uppercase;
     letter-spacing:.12em;color:#6b7694;margin:20px 0 10px;
-    border-bottom:1px solid #252a38;padding-bottom:6px; }
+    border-bottom:1px solid rgba(37, 42, 56, 0.5);padding-bottom:6px; }
 
   /* Stray streamlit defaults */
-  .stTextArea textarea { background:#13161e!important;color:#e2e8f0!important;
+  .stTextArea textarea { background:rgba(19, 22, 30, 0.5)!important;color:#e2e8f0!important;
     border:1px solid #252a38!important;font-family:'IBM Plex Mono',monospace!important;
-    font-size:12px!important; }
-  .stButton>button { background:#7b61ff!important;color:#fff!important;
-    border:none!important;border-radius:6px!important;font-weight:500!important; }
-  .stButton>button:hover { background:#9b7fff!important; }
+    font-size:12px!important; transition: border-color 0.3s ease; }
+  .stTextArea textarea:focus { border-color: #00e5ff!important; box-shadow: 0 0 0 1px #00e5ff!important; }
+  .stButton>button { 
+    background: linear-gradient(135deg, #7b61ff 0%, #00e5ff 100%) !important;
+    color: #fff !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    transition: all 0.2s ease-in-out !important;
+    box-shadow: 0 4px 12px rgba(123, 97, 255, 0.3) !important;
+  }
+  .stButton>button:hover { 
+    transform: scale(1.02) !important;
+    box-shadow: 0 6px 16px rgba(0, 229, 255, 0.4) !important;
+  }
   .stTabs [data-baseweb="tab"] { background:transparent; }
   div[data-testid="stSidebar"] { background:#0d0f14!important;
     border-right:1px solid #252a38!important; }
-  .stDataFrame { background:#13161e; }
+  .stDataFrame { background:rgba(19, 22, 30, 0.5); }
   
   /* Report styling */
   .report-card {
-    background: #13161e;
-    border: 1px solid #252a38;
-    border-radius: 12px;
+    background: rgba(19, 22, 30, 0.7);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
     padding: 24px;
     margin: 10px 0;
     line-height: 1.7;
     color: #e2e8f0;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  }
+  .report-card:hover {
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
   }
   .report-card h1, .report-card h2, .report-card h3 {
     color: #00e5ff;
@@ -220,9 +252,10 @@ def run_async(coro):
         logger.error(f"Async error: {e}")
         raise
 
-def load_and_validate(raw_json: str, file_name: str = "source.json") -> bool:
-    """Full validation pipeline with SHA256 deduplication."""
+def load_and_validate(raw_json: str, file_name: str = "source.json", skip_rate_limit: bool = False) -> bool:
+    """Full validation pipeline with SHA256 deduplication and fallback LLM parsing."""
     import hashlib
+    import json
     
     file_hash = hashlib.sha256(raw_json.encode("utf-8")).hexdigest()
     
@@ -237,43 +270,82 @@ def load_and_validate(raw_json: str, file_name: str = "source.json") -> bool:
         st.session_state.risk          = cached["risk"]
         st.session_state.analyzed      = False
         st.session_state.analysis      = None
+        st.session_state.active_model_hash = file_hash
         log_event("loaded_from_cache", f"hash={file_hash[:8]}")
         st.toast(f"Loaded from cache: {file_hash[:8]}")
         return True
 
-    try:
-        check_rate_limit(st.session_state.session_id)
-    except SecurityError as e:
-        st.error(str(e.public_msg))
-        log_event("rate_limit", str(e), error=True)
-        return False
+    if not skip_rate_limit:
+        try:
+            check_rate_limit(st.session_state.session_id)
+        except SecurityError as e:
+            st.error(str(e.public_msg))
+            log_event("rate_limit", str(e), error=True)
+            return False
 
     try:
-        cleaned = validate_json_input(raw_json)
+        cleaned_list = []
+        try:
+            # First try standard validation
+            cleaned = validate_json_input(raw_json)
+            cleaned_list.append(cleaned)
+        except SecurityError as e:
+            # Fallback to LLM parser if validation fails
+            from llm_parser import parse_unstructured_metrics
+            with st.spinner("Parsing unstructured metrics using NanoBot..."):
+                parsed_items = run_async(parse_unstructured_metrics(raw_json))
+                if not parsed_items:
+                    raise SecurityError("LLM failed to parse any valid metrics from the input.")
+                
+                # Check each item returned by LLM
+                for item in parsed_items:
+                    try:
+                        c = validate_json_input(json.dumps(item))
+                        cleaned_list.append(c)
+                    except SecurityError:
+                        continue
+            
+            if not cleaned_list:
+                raise SecurityError("Could not extract valid Trinity metrics from the input.")
+
+        # Process all successfully cleaned and validated models
+        success = False
+        for idx, cleaned in enumerate(cleaned_list):
+            llm_payload = build_llm_safe_payload(cleaned)
+            risk        = run_weighted_risk(cleaned)
+            
+            # Create a unique sub-hash for each model if multiple were extracted
+            if len(cleaned_list) > 1:
+                sub_hash = hashlib.sha256(json.dumps(cleaned).encode("utf-8")).hexdigest()
+                fname = f"{file_name}_part_{idx+1}"
+            else:
+                sub_hash = file_hash
+                fname = file_name
+
+            st.session_state.json_store[sub_hash] = {
+                "file": fname,
+                "data": cleaned,
+                "data_llm": llm_payload,
+                "risk": risk,
+                "timestamp": datetime.now(UTC).isoformat()
+            }
+
+            # Set the last one as Active
+            st.session_state.metrics_raw   = raw_json
+            st.session_state.metrics_clean = cleaned
+            st.session_state.metrics_llm   = llm_payload
+            st.session_state.risk          = risk
+            st.session_state.analyzed      = False
+            st.session_state.analysis      = None
+            st.session_state.active_model_hash = sub_hash
+            log_event("loaded", f"risk={risk['level']}, hash={sub_hash[:8]}")
+            success = True
+            
+        return success
     except SecurityError as e:
         st.error(str(e.public_msg))
         log_event("validation_fail", e.internal, error=True)
         return False
-
-    llm_payload = build_llm_safe_payload(cleaned)
-    risk        = run_weighted_risk(cleaned)
-
-    st.session_state.json_store[file_hash] = {
-        "file": file_name,
-        "data": cleaned,
-        "data_llm": llm_payload,
-        "risk": risk,
-        "timestamp": datetime.now(UTC).isoformat()
-    }
-
-    st.session_state.metrics_raw   = raw_json
-    st.session_state.metrics_clean = cleaned
-    st.session_state.metrics_llm   = llm_payload
-    st.session_state.risk          = risk
-    st.session_state.analyzed      = False
-    st.session_state.analysis      = None
-    log_event("loaded", f"risk={risk['level']}, hash={file_hash[:8]}")
-    return True
 
 SAMPLE_JSONS = {
     "Classification (fraud detection)": "sample_metrics/sample1_classification.json",
@@ -310,18 +382,19 @@ with st.sidebar:
 
     elif input_mode == "Upload file":
         uploaded = st.file_uploader(
-            "Upload JSON", type=["json"],
-            accept_multiple_files=False,
+            "Upload JSON", type=["json", "txt", "csv"],
+            accept_multiple_files=True,
             label_visibility="collapsed",
         )
+        raw_input_list = []
         if uploaded:
-            # Step 1: size check before reading
-            size = uploaded.size
-            if size > MAX_JSON_BYTES:
-                st.error(f"Invalid metric input: file too large (max {MAX_JSON_BYTES//1000} KB).")
-            else:
-                raw_input = uploaded.read().decode("utf-8", errors="replace")
-                st.caption(f"📄 {uploaded.name} — {size:,} bytes")
+            for u in uploaded:
+                size = u.size
+                if size > MAX_JSON_BYTES:
+                    st.error(f"File {u.name} too large (max {MAX_JSON_BYTES//1000} KB).")
+                else:
+                    raw_input_list.append((u.read().decode("utf-8", errors="replace"), u.name))
+                    st.caption(f"📄 {u.name} — {size:,} bytes")
 
     elif input_mode == "Load sample":
         sample_choice = st.selectbox("Select sample", list(SAMPLE_JSONS.keys()),
@@ -343,19 +416,61 @@ with st.sidebar:
         swap_btn = st.button("⇄ Swap", width="stretch",
                              disabled=not st.session_state.analyzed)
 
-    if load_btn and raw_input:
-        fname = uploaded.name if (input_mode == "Upload file" and uploaded) else "pasted_or_sample.json"
-        if load_and_validate(raw_input, fname):
+    if load_btn:
+        if input_mode == "Upload file" and uploaded:
+            st.session_state.json_store = {} # Clear past models on new explicit multiple load
+            try:
+                check_rate_limit(st.session_state.session_id)
+            except SecurityError as e:
+                st.error(str(e.public_msg))
+                st.stop()
+            for raw, name in raw_input_list:
+                load_and_validate(raw, name, skip_rate_limit=True)
             st.success("✅ Metrics loaded and validated.")
+        elif raw_input:
+            fname = "pasted_or_sample.json"
+            if load_and_validate(raw_input, fname):
+                st.success("✅ Metrics loaded and validated.")
+        else:
+            st.warning("Please provide a JSON source first.")
 
-    if swap_btn and raw_input:
-        fname = uploaded.name if (input_mode == "Upload file" and uploaded) else "pasted_or_sample.json"
+    if swap_btn:
         st.session_state.swap_count += 1
-        if load_and_validate(raw_input, fname):
+        if input_mode == "Upload file" and uploaded:
+            try:
+                check_rate_limit(st.session_state.session_id)
+            except SecurityError as e:
+                st.error(str(e.public_msg))
+                st.stop()
+            for raw, name in raw_input_list:
+                load_and_validate(raw, name, skip_rate_limit=True)
             st.success(f"✅ Source swapped (#{st.session_state.swap_count}). Re-run analysis.")
+        elif raw_input:
+            fname = "pasted_or_sample.json"
+            if load_and_validate(raw_input, fname):
+                st.success(f"✅ Source swapped (#{st.session_state.swap_count}). Re-run analysis.")
 
-    if not raw_input and load_btn:
-        st.warning("Please provide a JSON source first.")
+    # Show active model selector if there are multiple
+    if "json_store" in st.session_state and len(st.session_state.json_store) > 1:
+        st.divider()
+        st.markdown('<div class="section-title">Active Model</div>', unsafe_allow_html=True)
+        options = list(st.session_state.json_store.keys())
+        format_func = lambda x: st.session_state.json_store[x]["file"]
+        
+        active_hash = st.session_state.get("active_model_hash")
+        default_idx = options.index(active_hash) if active_hash in options else 0
+        
+        selected_hash = st.selectbox("Select model to view", options, format_func=format_func, index=default_idx)
+        if selected_hash != active_hash:
+            st.session_state.active_model_hash = selected_hash
+            cached = st.session_state.json_store[selected_hash]
+            st.session_state.metrics_raw   = json.dumps(cached["data"])
+            st.session_state.metrics_clean = cached["data"]
+            st.session_state.metrics_llm   = cached["data_llm"]
+            st.session_state.risk          = cached["risk"]
+            st.session_state.analyzed      = False
+            st.session_state.analysis      = None
+            st.rerun()
 
     # Show current load status
     st.divider()
@@ -653,6 +768,33 @@ with tab_analysis:
                 unsafe_allow_html=True)
     st.caption("NanoBot explains the numeric metrics in plain English. Risk is determined separately by the deterministic rule engine — not by the LLM.")
 
+    if "json_store" in st.session_state and len(st.session_state.json_store) > 1:
+        st.markdown('### ⚖️ Multi-Model Comparison')
+        if st.button("⚖️ Run Cross-Model Workflow Report", width="content"):
+            try:
+                check_rate_limit(st.session_state.session_id)
+            except SecurityError as e:
+                st.error(str(e.public_msg))
+                st.stop()
+            with st.spinner("NanoBot is building a custom cross-referencing workflow report..."):
+                try:
+                    import json as _json
+                    multi_comp = {}
+                    for h, d in st.session_state.json_store.items():
+                        multi_comp[d["file"]] = {"risk_lvl": d["risk"]["level"], "score": d["risk"].get("weighted_breakdown", {}).get("final_score"), "metrics": d["data_llm"]}
+                    
+                    sys_msg = "You are a Senior ML Engineer. Compare the following models robustly and provide a definitive recommendation on which one is best suited for deployment based on their risk and metrics. Output in cleanly Markdown formatted report without filler phrases."
+                    user_msg = _json.dumps(multi_comp)
+                    comparison_res = run_async(call_nanobot(sys_msg, user_msg, max_tokens=2048))
+                    st.session_state.multi_analysis = comparison_res
+                except Exception as e:
+                    st.error(f"Multi-model analysis failed: {str(e)[:200]}")
+        
+        if st.session_state.get("multi_analysis"):
+            st.markdown(f'<div class="report-card">{markdown2.markdown(st.session_state.multi_analysis, extras=["tables", "fenced-code-blocks"])}</div>', unsafe_allow_html=True)
+        st.divider()
+
+    st.markdown('### Active Model Analysis')
     if not st.session_state.analyzed:
         if st.button("▶ Run NanoBot Analysis", width="content"):
             try:
@@ -800,15 +942,10 @@ with tab_chat:
         st.session_state.chat_history.append({"role": "user", "content": safe_msg})
 
         safe_hist = [
-            m for m in st.session_state.chat_history[-6:]
+            m for m in st.session_state.chat_history[-10:]
             if m["role"] in ("user", "assistant")
         ]
-        history_text = "\n".join(
-            f"{'USER' if m['role']=='user' else 'NANOBOT'}: {m['content']}"
-            for m in safe_hist
-        )
-        context = f"Conversation so far:\n{history_text}\n\nRespond to the latest USER message only."
-        context = context[:2000]
+        
         # Build rich chat context: metrics + risk engine output
         import json as _json
         risk_summary = {
@@ -833,9 +970,10 @@ with tab_chat:
             }, indent=2)
         system = chat_system(chat_context)
 
-        with st.spinner("NanoBot is thinking…"):
+        with st.spinner("NanoBot is thinking (Agentic Memory active)…"):
             try:
-                reply = run_async(call_nanobot(system, context))
+                from nanobot_client import call_nanobot_chat
+                reply = run_async(call_nanobot_chat(system, safe_hist))
                 st.session_state.chat_history.append({"role": "assistant", "content": reply})
                 log_event("chat", f"q={safe_msg[:40]}")
             except Exception as e:
