@@ -1,27 +1,58 @@
 # PS2 — Model Performance Explainer
 **Giggso Build-Break Challenge | Phase 1**
-Powered by **NanoBot** (orchestration framework) → **Anthropic Claude**
+Powered by **NanoBot** (orchestration layer) → **Google Gemini**
 
 ---
 
-## Quick Start
+## 🚀 How to Run the Project
+
+Follow these steps to set up and run the analysis tool on your local machine.
+
+### 1. Environment Setup
+We recommend using a virtual environment to manage dependencies.
+
+```powershell
+# Create virtual environment
+python -m venv .venv
+
+# Activate virtual environment
+# Windows (PowerShell):
+.\.venv\Scripts\Activate.ps1
+# Mac/Linux:
+source .venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### 2. Configuration
+Create a `.env` file in the root directory by copying the example.
 
 ```bash
-# 1. Install dependencies
-pip install -r requirements.txt
-
-# 2. Create .env file
 cp .env.example .env
-# Edit .env → add your ANTHROPIC_API_KEY
+```
+Open `.env` and add your **Google Gemini API Key**:
+`GOOGLE_API_KEY=your_key_here`
 
-# 3. Run Streamlit app
-python -m streamlit run app.py
+### 3. Start the Backend API
+The FastAPI backend handles metric validation and the deterministic risk engine.
 
-# 4. Run public API (separate terminal)
-uvicorn api:app --host 0.0.0.0 --port 8001
+```powershell
+uvicorn api:app --host 127.0.0.1 --port 8001
+```
 
-# 5. Expose publicly
-ngrok http 8001
+### 4. Start the Streamlit UI
+In a **new terminal** (ensure the virtual environment is activated):
+
+```powershell
+streamlit run app.py --server.address 127.0.0.1 --server.port 8501 --server.headless true
+```
+
+### 5. Expose Locally (Optional)
+To share your local instance with reviewers, use `ngrok`:
+
+```powershell
+ngrok http 8501
 ```
 
 ---
@@ -46,7 +77,7 @@ Streamlit UI (app.py)
   score = 0.40×f1 + 0.25×precision + 0.20×recall + 0.15×auc + penalties
     ↓
 [NanoBot Layer]        ← nanobot_client.py
-  NanoBot framework → Anthropic Claude API
+  NanoBot framework → Google Gemini API
     ↓
 [XAI Visualisations]   ← xai.py
   SHAP · LIME · ELI5
@@ -59,66 +90,36 @@ Streamlit UI Tabs:
 
 ## Public API Endpoint
 
-**URL:** `https://your-ngrok-url/analyze`  
+The system provides a secure endpoint for automated metric submission.
+
+**URL:** `https://your-ngrok-url/api/analyze`  
 **Method:** `POST`  
 **Auth:** `Authorization: Bearer giggso-ps2-secret-token`
 
 ```bash
-curl -X POST https://your-ngrok-url/analyze \
+curl -X POST https://your-ngrok-url/api/analyze \
   -H "Authorization: Bearer giggso-ps2-secret-token" \
   -H "Content-Type: application/json" \
-  -d '{"metrics_json": "{\"performance_metrics\": {\"f1_score\": 0.87, \"accuracy\": 0.92}}"}'
+  -d '{"performance_metrics": {"f1_score": 0.87, "precision": 0.92, "recall": 0.85, "roc_auc": 0.90}}'
 ```
 
 ---
 
-## Security Layers
+## Security Features
 
-| Layer | What it does |
+| Layer | Implementation |
 |-------|-------------|
-| Blocklist | 40+ dangerous terms with word-boundary matching |
-| Allowlist | Only whitelisted JSON keys accepted |
-| WAF | 25+ regex injection patterns blocked |
-| Range validation | 0 ≤ metric ≤ 1 enforced |
-| Input guard | 6-layer chat input sanitisation |
-| Rate limiter | 10 req/min per session |
-| Token cap | Max 2000 chars to LLM, max 600 output tokens |
-| Safe errors | All errors return "Invalid metric input" |
-
----
-
-## NanoBot Integration
-
-NanoBot is used as an **orchestration framework**. The flow:
-```
-Your App → nanobot_client.py (NanoBot layer) → Anthropic API → Response
-```
-No NanoBot API key is needed — only `ANTHROPIC_API_KEY`.
-
----
-
-## Risk Formula
-
-```
-score = 0.40×f1 + 0.25×precision + 0.20×recall + 0.15×auc + penalties
-```
-- Penalties from regulatory matrix (NIST / EU AI Act / DPDP)
-- Penalties clamped to [-0.45, 0]
-- Score always in [0.0, 1.0]
-- **Deterministic: identical input = identical output**
-
-| Score | Risk Level |
-|-------|-----------|
-| ≥ 0.85 | 🟢 LOW |
-| 0.70–0.85 | 🟡 MEDIUM |
-| 0.55–0.70 | 🟠 HIGH |
-| < 0.55 | 🔴 CRITICAL |
+| **Input Guard** | 6-layer chat sanitisation (Injection detection, blocklist) |
+| **Security Pipeline** | JSON structural validation & key allowlisting |
+| **Rate Limiter** | Strictly enforced 10 req/min for API, 1 msg/sec for Chat |
+| **Deterministic Risk** | Risk engine is 100% rule-based (Giggso requirement) |
+| **WAF** | Integrated regex-based Web Application Firewall |
 
 ---
 
 ## Assumptions & Limitations
 
-- Session data is **in-memory only** — restarting clears sessions
-- Risk engine uses 4 core metrics — other metrics used for context only
-- NanoBot explains metrics only — never makes deployment decisions
-- Public endpoint requires ngrok or cloud deployment for external access
+- **Stateless Analysis**: Model explanations are generated per session.
+- **Metric Scoping**: The NanoBot Chat is strictly scoped to the loaded ML metrics.
+- **Quota Management**: Free tier Gemini keys are subject to standard Google quotas.
+- **Manual Sign-off**: Risk levels are advisory; final deployment requires human expert review.
