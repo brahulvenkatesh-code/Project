@@ -1,125 +1,131 @@
-# PS2 — Model Performance Explainer
-**Giggso Build-Break Challenge | Phase 1**
-Powered by **NanoBot** (orchestration layer) → **Google Gemini**
+# ⚡ NanoBot: Model Performance Explainer
+### **Giggso Build-Break Challenge | PS2 — Phase 1**
+
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-3120/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.111.0-109989?logo=fastapi)](https://fastapi.tiangolo.com/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.35.0-FF4B4B?logo=streamlit)](https://streamlit.io/)
+[![Google Gemini](https://img.shields.io/badge/Powered%20by-Google%20Gemini-4285F4?logo=googlegemini)](https://ai.google.dev/)
+
+**NanoBot** is a high-security, professional ML metrics analysis dashboard designed for the Giggso Build-Break Challenge. It combines a deterministic risk engine with advanced LLM orchestration (NanoBot Layer) to provide human-readable insights from complex Trinity ML metrics.
 
 ---
 
-## 🚀 How to Run the Project
+## 🌟 Key Features
 
-Follow these steps to set up and run the analysis tool on your local machine.
+- **🛡️ 6-Layer Security Pipeline**: Hardened input validation, JSON allowlisting, and regex-based WAF (Web Application Firewall).
+- **🤖 NanoBot AI Layer**: Orchestrates Google Gemini to translate raw numeric metrics into professional regulatory-compliant reports.
+- **⚖️ Deterministic Risk Engine**: A 100% rule-based engine that calculates risk scores without LLM hallucination risk.
+- **🔬 XAI Visualization Suite**: Interactive SHAP, LIME, and ELI5-style explainability charts powered by Plotly.
+- **🔐 Enterprise Auth**: Secure Public API endpoint protected by Bearer Token Authentication.
+- **📊 Compliance Ready**: Maps metrics against NIST, EU AI Act, and DPDP regulatory frameworks.
 
-### 1. Environment Setup
-We recommend using a virtual environment to manage dependencies.
+---
 
-```powershell
-# Create virtual environment
+## 🚀 Quick Start
+
+### 1. Prerequisites
+Ensure you have Python 3.12+ installed.
+
+```bash
+# Clone the repository
+git clone <repo-url>
+cd Project
+
+# Create and activate virtual environment
 python -m venv .venv
-
-# Activate virtual environment
-# Windows (PowerShell):
-.\.venv\Scripts\Activate.ps1
-# Mac/Linux:
-source .venv/bin/activate
+.\.venv\Scripts\Activate.ps1  # Windows
+source .venv/bin/activate     # Mac/Linux
 
 # Install dependencies
 pip install -r requirements.txt
 ```
 
 ### 2. Configuration
-Create a `.env` file in the root directory by copying the example.
-
+Create a `.env` file in the root directory:
 ```bash
-cp .env.example .env
+GOOGLE_API_KEY=your_gemini_api_key
+API_BEARER_TOKEN=giggso-ps2-secret-token
+ALLOWED_HOST=your-ngrok-url.ngrok-free.app  # Optional for production
 ```
-Open `.env` and add your **Google Gemini API Key**:
-`GOOGLE_API_KEY=your_key_here`
 
-### 3. Start the Backend API
-The FastAPI backend handles metric validation and the deterministic risk engine.
+### 3. Execution
+Run the dual-service architecture:
 
-```powershell
+**Terminal 1 (Backend API):**
+```bash
 uvicorn api:app --host 127.0.0.1 --port 8001
 ```
 
-### 4. Start the Streamlit UI
-In a **new terminal** (ensure the virtual environment is activated):
-
-```powershell
-streamlit run app.py --server.address 127.0.0.1 --server.port 8501 --server.headless true
-```
-
-### 5. Expose Locally (Optional)
-To share your local instance with reviewers, use `ngrok`:
-
-```powershell
-ngrok http 8501
-```
-
----
-
-## Architecture
-
-```
-User (Browser)
-    ↓
-Streamlit UI (app.py)
-    ↓
-[6-Layer Input Guard] ← input_guard.py
-    ↓
-[Security Pipeline]   ← security.py
-  • Size check (10KB)
-  • JSON parse
-  • Blocklist scan
-  • Allowlist filter
-  • Range validation (0≤metric≤1)
-    ↓
-[Weighted Risk Engine] ← risk_engine.py  (NO LLM)
-  score = 0.40×f1 + 0.25×precision + 0.20×recall + 0.15×auc + penalties
-    ↓
-[NanoBot Layer]        ← nanobot_client.py
-  NanoBot framework → Google Gemini API
-    ↓
-[XAI Visualisations]   ← xai.py
-  SHAP · LIME · ELI5
-    ↓
-Streamlit UI Tabs:
-  Overview | XAI | NanoBot Analysis | Chat | Raw
-```
-
----
-
-## Public API Endpoint
-
-The system provides a secure endpoint for automated metric submission.
-
-**URL:** `https://your-ngrok-url/api/analyze`  
-**Method:** `POST`  
-**Auth:** `Authorization: Bearer giggso-ps2-secret-token`
-
+**Terminal 2 (Streamlit UI):**
 ```bash
-curl -X POST https://your-ngrok-url/api/analyze \
+streamlit run app.py
+```
+
+---
+
+## 🏗️ Technical Architecture
+
+NanoBot follows a strictly decoupled, modular architecture to ensure security and performance.
+
+```mermaid
+graph TD
+    A[User Browser] -->|Metrics JSON| B[Streamlit UI]
+    B --> C{Input Guard}
+    C -->|Sanitized| D[Security Pipeline]
+    D --> E[Deterministic Risk Engine]
+    D --> F[NanoBot AI Orchestrator]
+    F -->|System Prompt Locked| G[Google Gemini API]
+    E --> H[Consolidated Report]
+    G --> H
+    H --> I[XAI Visualization Layer]
+    I --> J[Professional Dashboard]
+```
+
+### Security Layers
+| Layer | Component | Description |
+| :--- | :--- | :--- |
+| **1** | `input_guard.py` | Injection detection, homoglyph normalization, character filtering. |
+| **2** | `security.py` | JSON depth checks, key allowlisting, and strict range validation. |
+| **3** | `prompts.py` | Context-locked system instructions preventing prompt injection. |
+| **4** | `api.py` | Rate limiting (10 req/min) and Bearer auth. |
+| **5** | `xai.py` | Derived explanations — NO raw user data passed through. |
+
+---
+
+## 🔌 Public API Reference
+
+Submit metrics programmatically to the hardened endpoint.
+
+**Endpoint:** `POST /api/analyze`  
+**Authentication:** `Authorization: Bearer giggso-ps2-secret-token`
+
+**Example Request:**
+```bash
+curl -X POST http://localhost:8001/api/analyze \
   -H "Authorization: Bearer giggso-ps2-secret-token" \
   -H "Content-Type: application/json" \
-  -d '{"performance_metrics": {"f1_score": 0.87, "precision": 0.92, "recall": 0.85, "roc_auc": 0.90}}'
+  -d '{
+    "performance_metrics": {
+      "f1_score": 0.88,
+      "precision": 0.91,
+      "recall": 0.85
+    }
+  }'
 ```
 
 ---
 
-## Security Features
+## 📋 Assumptions & Constraints
 
-| Layer | Implementation |
-|-------|-------------|
-| **Input Guard** | 6-layer chat sanitisation (Injection detection, blocklist) |
-| **Security Pipeline** | JSON structural validation & key allowlisting |
-| **Rate Limiter** | Strictly enforced 10 req/min for API, 1 msg/sec for Chat |
-| **Deterministic Risk** | Risk engine is 100% rule-based (Giggso requirement) |
-| **WAF** | Integrated regex-based Web Application Firewall |
+1. **Stateless Operations**: To maintain maximum security, metrics are processed in-memory and not persisted.
+2. **Standardized Metrics**: The system expects Trinity-compliant JSON structures.
+3. **Draft Advisory**: All risk levels are advisory; final deployment **must** be confirmed by a human ML engineer.
+4. **Quota Management**: Free-tier Gemini keys are subject to Google's daily RPM/TPM limits.
 
 ---
 
-## Assumptions & Limitations
+## 🤝 Contributing
+This project is part of a timed challenge. For structural improvements or security disclosures, please open an issue in the repository.
 
-- **Stateless Analysis**: Model explanations are generated per session.
-- **Metric Scoping**: The NanoBot Chat is strictly scoped to the loaded ML metrics.
-- **Quota Management**: Free tier Gemini keys are subject to standard Google quotas.
-- **Manual Sign-off**: Risk levels are advisory; final deployment requires human expert review.
+---
+*Developed for the Giggso Build-Break Challenge 2026.*

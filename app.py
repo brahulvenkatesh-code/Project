@@ -676,7 +676,10 @@ with tab_analysis:
                 except Exception as e:
                     err = str(e)
                     if "429" in err or "quota" in err.lower():
-                        st.error("Gemini rate limit hit. Wait 1 minute and try again.")
+                        if "daily" in err.lower() or "requestsperday" in err.lower():
+                            st.error("Gemini DAILY quota exhausted. Please use a different API key or wait until tomorrow.")
+                        else:
+                            st.error("Gemini rate limit hit (RPM). Please wait 60 seconds and try again.")
                     elif "API_KEY" in err or "api key" in err.lower() or "invalid" in err.lower():
                         st.error(f"API key error: {err[:200]}")
                     elif "8192" in err or "token" in err.lower():
@@ -837,7 +840,10 @@ with tab_chat:
             except Exception as e:
                 err_msg = str(e)
                 if "429" in err_msg:
-                    st.error("Rate limit hit. Please wait a moment and try again.")
+                    if "daily" in err_msg.lower() or "requestsperday" in err_msg.lower():
+                        st.error("Gemini DAILY quota exhausted. Please use a different API key or wait until tomorrow.")
+                    else:
+                        st.error("Gemini rate limit hit (RPM). Please wait a moment and try again.")
                 else:
                     st.error(f"NanoBot unavailable: {err_msg[:120]}")
                 log_event("chat_error", err_msg, error=True)
