@@ -52,18 +52,30 @@ graph TD
 
 ---
 
-## 🔌 Public API Reference
+The public endpoint is secured using **JWT (JSON Web Token) Authentication**. To access the API, you must first obtain a token using **Base64-encoded Basic Authentication**.
 
-The public endpoint is secured using **Bearer Token Authentication**.
+### Phase 1: Obtain Access Token
+- **URL**: `https://project-production-a63b.up.railway.app/api/token`
+- **Method**: `POST`
+- **Header**: `Authorization: Basic <base64(username:password)>`
 
+**Example:**
+```bash
+# Credentials: admin:supersecurepassword
+curl -X POST https://project-production-a63b.up.railway.app/api/token \
+  -H "Authorization: Basic YWRtaW46c3VwZXJzZWN1cmVwYXNzd29yZA=="
+```
+_Returns: `{"access_token": "...", "token_type": "bearer"}`_
+
+### Phase 2: Call Analysis API
 - **URL**: `https://project-production-a63b.up.railway.app/api/analyze`
 - **Method**: `POST`
-- **Header**: `Authorization: Bearer giggso-ps2-secret-token`
+- **Header**: `Authorization: Bearer <your_jwt_token>`
 
-### Example Request:
+**Example:**
 ```bash
 curl -X POST https://project-production-a63b.up.railway.app/api/analyze \
-  -H "Authorization: Bearer giggso-ps2-secret-token" \
+  -H "Authorization: Bearer <JWT_TOKEN>" \
   -H "Content-Type: application/json" \
   -d '{
     "performance_metrics": {
@@ -92,7 +104,10 @@ Update your `.env` file:
 ```env
 GOOGLE_API_KEY=your_key
 GROQ_API_KEY=your_groq_key
-API_BEARER_TOKEN=giggso-ps2-secret-token
+# API Authentication
+API_USERNAME=admin
+API_PASSWORD=supersecurepassword
+API_JWT_SECRET=my-super-secret-jwt-key
 ```
 
 ### 3. Run

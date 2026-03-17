@@ -6,12 +6,17 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from security import parse_and_validate, safe_token_compare
+import jwt
+from datetime import datetime, timedelta, timezone
+import base64
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ps2-api")
 
-API_TOKEN    = os.environ.get("API_BEARER_TOKEN", "giggso-ps2-secret-token")
+API_USERNAME = os.environ.get("API_USERNAME", "admin")
+API_PASSWORD = os.environ.get("API_PASSWORD", "supersecurepassword")
+API_JWT_SECRET = os.environ.get("API_JWT_SECRET", "my-super-secret-jwt-key")
 # ALLOWED_HOST removed for simplicity
 
 app = FastAPI(docs_url=None, redoc_url=None)  # disable swagger in prod
@@ -57,12 +62,47 @@ async def strip_info_headers(request: Request, call_next):
 # ── Auth dependency ───────────────────────────────────────────────────────────
 def require_auth(authorization: str = Header(...)):
     if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Invalid metric input")
+        raise HTTPException(status_code=401, detail="Invalid token format")
     token = authorization[7:]
-    if not safe_token_compare(token, API_TOKEN):
-        raise HTTPException(status_code=401, detail="Invalid metric input")
+    
+    try:
+        # Decode and verify the JWT token
+        payload = jwt.decode(token, API_JWT_SECRET, algorithms=["HS256"])
+        if payload.get("sub") != API_USERNAME:
+            raise HTTPException(status_code=401, detail="Invalid token subject")
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token has expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
 # ── Main endpoint ─────────────────────────────────────────────────────────────
+@app.post("/api/token")
+@limiter.limit("10/minute")
+async def login(request: Request, authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Basic "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Basic auth header")
+    
+    try:
+        # Decode the Base64 credentials
+        b64_creds = authorization[6:]
+        decoded_creds = base64.b64decode(b64_creds).decode("utf-8")
+        username, password = decoded_creds.split(":", 1)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid Basic auth format")
+        
+    if not safe_token_compare(username, API_USERNAME) or not safe_token_compare(password, API_PASSWORD):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+    # Generate JWT token valid for 1 hour
+    expiration = datetime.now(timezone.utc) + timedelta(hours=1)
+    payload = {
+        "sub": username,
+        "exp": expiration
+    }
+    encoded_jwt = jwt.encode(payload, API_JWT_SECRET, algorithm="HS256")
+    
+    return {"access_token": encoded_jwt, "token_type": "bearer"}
+
 @app.post("/api/analyze")
 @limiter.limit("5/minute")
 async def analyze(request: Request, authorization: str = Header(...)):
