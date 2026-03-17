@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: giggso-ui
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python -m streamlit run app.py --server.port $PORT --server.address 0.0.0.0"
+    envVars:
+      - key: PORT
+        value: 8501
+      - key: ANTHROPIC_API_KEY
+        sync: false
+        
+  - type: web
+    name: giggso-api
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn api:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: PORT
+        value: 8001
+      - key: ANTHROPIC_API_KEY
+        sync: false
