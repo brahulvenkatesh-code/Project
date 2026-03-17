@@ -26,33 +26,48 @@ def _truncate_system(system: str) -> str:
 
 async def call_nanobot(system: str, user_message: str, max_tokens: int = MAX_LLM_TOKENS) -> str:
     """
-    NanoBot orchestrates this call to the Gemini API.
+    NanoBot orchestrates this call to the Gemini API with a smart fallback.
+    1. Primary: gemini-flash-latest (Gemini 3)
+    2. Fallback: gemini-1.5-flash (if Primary quota is hit)
     """
     key = os.environ.get("GOOGLE_API_KEY", "").strip()
     if not key:
         raise ValueError("GOOGLE_API_KEY is not set in .env")
 
-    # Safe log to verify the key being used (first 4 and last 4 chars only)
-    logger.info(f"NanoBot calling Gemini with key: {key[:4]}...{key[-4:]}")
-
+    # Primary attempt
+    primary_model = "gemini-flash-latest"
+    fallback_model = "gemini-1.5-flash"
+    
     try:
-        client = genai.Client(api_key=key)
-
-        response = await client.aio.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=user_message,
-            config=types.GenerateContentConfig(
-                system_instruction=_truncate_system(system),
-                max_output_tokens=max_tokens,
-                temperature=0.1,
-            ),
-        )
-
-        if not response.text:
-            raise ValueError("Empty response from Gemini")
-
-        return response.text
-
+        return await _execute_call(key, primary_model, system, user_message, max_tokens)
     except Exception as e:
-        logger.error(f"Gemini error: {e}")
-        raise
+        err_msg = str(e).lower()
+        # Detect Daily Quota / Resource Exhaustion
+        if "429" in err_msg or "quota" in err_msg or "exhausted" in err_msg:
+            logger.warning(f"Primary model ({primary_model}) quota hit. Falling back to {fallback_model}...")
+            try:
+                return await _execute_call(key, fallback_model, system, user_message, max_tokens)
+            except Exception as fe:
+                logger.error(f"Fallback model also failed: {fe}")
+                raise
+        else:
+            logger.error(f"Gemini error: {e}")
+            raise
+
+
+async def _execute_call(api_key: str, model: str, system: str, user_message: str, max_tokens: int) -> str:
+    client = genai.Client(api_key=api_key)
+    response = await client.aio.models.generate_content(
+        model=model,
+        contents=user_message,
+        config=types.GenerateContentConfig(
+            system_instruction=_truncate_system(system),
+            max_output_tokens=max_tokens,
+            temperature=0.1,
+        ),
+    )
+
+    if not response.text:
+        raise ValueError("Empty response from Gemini")
+
+    return response.text
