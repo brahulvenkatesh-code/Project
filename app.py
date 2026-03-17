@@ -49,12 +49,13 @@ if "ngrok-skip-browser-warning" in _headers:
 # 2. Host Header Validation
 _allowed_host = os.environ.get("ALLOWED_HOST", "")
 _host = _headers.get("Host", "").split(":")[0].lower()  # ignore port
-if _allowed_host and _host:
+if _host:
     if not (_host.endswith(".ngrok-free.app") or 
             _host.endswith(".ngrok-free.dev") or 
+            _host.endswith(".up.railway.app") or
             _host == "localhost" or 
             _host == "127.0.0.1" or 
-            _host == _allowed_host.split(":")[0].lower()):
+            (_allowed_host and _host == _allowed_host.split(":")[0].lower())):
         st.error(f"Invalid Host: {_host}. Please check your ALLOWED_HOST config.")
         st.stop()
 
