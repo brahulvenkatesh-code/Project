@@ -1,107 +1,68 @@
-# ⚡ NanoBot: Model Performance Explainer
-### **Giggso Build-Break Challenge | PS2 — Phase 1**
+# ⚡ NanoBot: Enterprise ML Model Explainer
+### **Giggso Build-Break Challenge | PS2 — Phase 1 (Hardened Edition)**
 
-[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-3120/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.111.0-109989?logo=fastapi)](https://fastapi.tiangolo.com/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.35.0-FF4B4B?logo=streamlit)](https://streamlit.io/)
+[![Railway Deployed](https://img.shields.io/badge/Railway-Live-0B0D0E?logo=railway)](https://project-production-a63b.up.railway.app/)
+[![Groq Powered](https://img.shields.io/badge/Groq-14k_RPD-f55036?logo=groq)](https://groq.com/)
 [![Google Gemini](https://img.shields.io/badge/Powered%20by-Google%20Gemini-4285F4?logo=googlegemini)](https://ai.google.dev/)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-3120/)
 
-**NanoBot** is a high-security, professional ML metrics analysis dashboard designed for the Giggso Build-Break Challenge. It combines a deterministic risk engine with advanced LLM orchestration (NanoBot Layer) to provide human-readable insights from complex Trinity ML metrics.
+**NanoBot** is a high-security, professional ML metrics analysis dashboard. It uses a **Triple-Tier Fallback Orchestration** system to provide uninterrupted, high-quality metric analysis even under heavy load.
+
+---
+
+## 🚀 Live Demo
+**URL**: [project-production-a63b.up.railway.app](https://project-production-a63b.up.railway.app/)
 
 ---
 
 ## 🌟 Key Features
 
-- **🛡️ 6-Layer Security Pipeline**: Hardened input validation, JSON allowlisting, and regex-based WAF (Web Application Firewall).
-- **🤖 NanoBot AI Layer**: Orchestrates Google Gemini to translate raw numeric metrics into professional regulatory-compliant reports.
-- **⚖️ Deterministic Risk Engine**: A 100% rule-based engine that calculates risk scores without LLM hallucination risk.
-- **🔬 XAI Visualization Suite**: Interactive SHAP, LIME, and ELI5-style explainability charts powered by Plotly.
-- **🔐 Enterprise Auth**: Secure Public API endpoint protected by Bearer Token Authentication.
-- **📊 Compliance Ready**: Maps metrics against NIST, EU AI Act, and DPDP regulatory frameworks.
-
----
-
-## 🚀 Quick Start
-
-### 1. Prerequisites
-Ensure you have Python 3.12+ installed.
-
-```bash
-# Clone the repository
-git clone <repo-url>
-cd Project
-
-# Create and activate virtual environment
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1  # Windows
-source .venv/bin/activate     # Mac/Linux
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### 2. Configuration
-Create a `.env` file in the root directory:
-```bash
-GOOGLE_API_KEY=your_gemini_api_key
-API_BEARER_TOKEN=giggso-ps2-secret-token
-ALLOWED_HOST=your-ngrok-url.ngrok-free.app  # Optional for production
-```
-
-### 3. Execution
-Run the dual-service architecture:
-
-**Terminal 1 (Backend API):**
-```bash
-uvicorn api:app --host 127.0.0.1 --port 8001
-```
-
-**Terminal 2 (Streamlit UI):**
-```bash
-streamlit run app.py
-```
+- **🛡️ 6-Layer Security Pipeline**: Hardened input validation, JSON allowlisting, and regex-based WAF.
+- **🛡️ 3-Tier AI Fallback**:
+    - **Tier 1**: Gemini 3 Flash (Primary - High Quality)
+    - **Tier 2**: Groq Llama 3.3 70B (High Availability - 14,400 Requests/Day)
+    - **Tier 3**: Gemini 1.5 Flash (Tertiary - Reliable Safety Net)
+- **⚖️ Deterministic Risk Engine**: A 100% rule-based engine provides reliable risk scoring without LLM hallucination.
+- **🔬 XAI Visualization Suite**: Interactive SHAP, LIME, and ELI5 charts for deep-dive explainability.
+- **📊 Compliance Ready**: Maps metrics against **NIST**, **EU AI Act**, and **DPDP** regulatory frameworks.
 
 ---
 
 ## 🏗️ Technical Architecture
 
-NanoBot follows a strictly decoupled, modular architecture to ensure security and performance.
-
 ```mermaid
 graph TD
     A[User Browser] -->|Metrics JSON| B[Streamlit UI]
-    B --> C{Input Guard}
-    C -->|Sanitized| D[Security Pipeline]
-    D --> E[Deterministic Risk Engine]
-    D --> F[NanoBot AI Orchestrator]
-    F -->|System Prompt Locked| G[Google Gemini API]
-    E --> H[Consolidated Report]
-    G --> H
-    H --> I[XAI Visualization Layer]
-    I --> J[Professional Dashboard]
+    B --> C{Security Guard}
+    C -->|Sanitized| D[Risk Engine]
+    C -->|Sanitized| E[NanoBot Orchestrator]
+    
+    subgraph AI Orchestration Layer
+    E --> F{Triple Tier Check}
+    F -->|Tier 1| G[Gemini 3 Flash]
+    F -->|Tier 2| H[Groq Llama 3.3]
+    F -->|Tier 3| I[Gemini 1.5 Flash]
+    end
+    
+    D --> J[Final Report]
+    G -.-> J
+    H -.-> J
+    I -.-> J
 ```
-
-### Security Layers
-| Layer | Component | Description |
-| :--- | :--- | :--- |
-| **1** | `input_guard.py` | Injection detection, homoglyph normalization, character filtering. |
-| **2** | `security.py` | JSON depth checks, key allowlisting, and strict range validation. |
-| **3** | `prompts.py` | Context-locked system instructions preventing prompt injection. |
-| **4** | `api.py` | Rate limiting (10 req/min) and Bearer auth. |
-| **5** | `xai.py` | Derived explanations — NO raw user data passed through. |
 
 ---
 
 ## 🔌 Public API Reference
 
-Submit metrics programmatically to the hardened endpoint.
+The public endpoint is secured using **Bearer Token Authentication**.
 
-**Endpoint:** `POST /api/analyze`  
-**Authentication:** `Authorization: Bearer giggso-ps2-secret-token`
+- **URL**: `https://project-production-a63b.up.railway.app/api/analyze`
+- **Method**: `POST`
+- **Header**: `Authorization: Bearer giggso-ps2-secret-token`
 
-**Example Request:**
+### Example Request:
 ```bash
-curl -X POST http://localhost:8001/api/analyze \
+curl -X POST https://project-production-a63b.up.railway.app/api/analyze \
   -H "Authorization: Bearer giggso-ps2-secret-token" \
   -H "Content-Type: application/json" \
   -d '{
@@ -115,17 +76,40 @@ curl -X POST http://localhost:8001/api/analyze \
 
 ---
 
-## 📋 Assumptions & Constraints
+## 🛠️ Local Development
 
-1. **Stateless Operations**: To maintain maximum security, metrics are processed in-memory and not persisted.
-2. **Standardized Metrics**: The system expects Trinity-compliant JSON structures.
-3. **Draft Advisory**: All risk levels are advisory; final deployment **must** be confirmed by a human ML engineer.
-4. **Quota Management**: Free-tier Gemini keys are subject to Google's daily RPM/TPM limits.
+### 1. Setup
+```bash
+git clone <repo-url>
+cd Project
+python -m venv .venv
+source .venv/bin/activate  # or .\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+### 2. Configure Environment
+Update your `.env` file:
+```env
+GOOGLE_API_KEY=your_key
+GROQ_API_KEY=your_groq_key
+API_BEARER_TOKEN=giggso-ps2-secret-token
+```
+
+### 3. Run
+```bash
+# Start Backend
+uvicorn api:app --port 8001
+
+# Start Frontend
+streamlit run app.py
+```
 
 ---
 
-## 🤝 Contributing
-This project is part of a timed challenge. For structural improvements or security disclosures, please open an issue in the repository.
+## 📋 Operational Assumptions
+1. **Deduplication**: SHA256 hashing is used for session-level metric caching.
+2. **Quota Handling**: The orchestrator automatically catches `429` errors and shifts to the next tier.
+3. **Draft Advisory**: NanoBot provides insights; final deployment is a human decision.
 
 ---
-*Developed for the Giggso Build-Break Challenge 2026.*
+*Developed for the Giggso Build-Break Challenge 2026. Stability. Security. Speed.*
