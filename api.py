@@ -2,6 +2,7 @@ import os
 import logging
 import json
 from fastapi import FastAPI, Request, Header, HTTPException
+from pydantic import BaseModel
 from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -126,11 +127,18 @@ async def analyze(request: Request, authorization: str = Header(..., alias="Auth
         "decision": decision
     }
 
-@app.post("/api/explain")
+class ExplanationResponse(BaseModel):
+    bot: str = "NanoBot"
+    reply: str
+    session_id: str | None = None
+    decision_id: str | None = None
+
+@app.post("/api/explain", response_model=ExplanationResponse)
 @limiter.limit("20/minute")
 async def explain(request: Request, authorization: str = Header(..., alias="Authorization")):
     # Verify and check permission (Read-Only)
-    user_payload = get_current_user_payload(authorization)
+    from access_control import get_current_user_payload
+    payload = get_current_user_payload(authorization)
     
     body = await request.json()
     
@@ -155,13 +163,14 @@ async def explain(request: Request, authorization: str = Header(..., alias="Auth
     explanation = await NanoBotService.explain_decision(safe_snapshot, user_context)
 
     # Log explanation event
-    logger.info(f"AUDIT | NanoBot accessed decision {safe_snapshot.get('decision_id')} requested by api-user")
+    logger.info(f"AUDIT | NanoBot accessed decision {safe_snapshot.get('decision_id')} requested by {payload.get('sub')}")
 
-    return {
-        "status": "ok",
-        "decision_id": safe_snapshot.get("decision_id"),
-        "explanation": explanation
-    }
+    return ExplanationResponse(
+        bot="NanoBot",
+        reply=explanation,
+        session_id=session_id,
+        decision_id=safe_snapshot.get("decision_id")
+    )
 
 @app.get("/health")
 async def health():
