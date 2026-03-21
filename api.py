@@ -155,7 +155,7 @@ async def explain(request: Request, authorization: str = Header(..., alias="Auth
     explanation = await NanoBotService.explain_decision(safe_snapshot, user_context)
 
     # Log explanation event
-    logger.info(f"AUDIT | NanoBot accessed decision {safe_snapshot.get('decision_id')} requested by {user_payload.get('sub')}")
+    logger.info(f"AUDIT | NanoBot accessed decision {safe_snapshot.get('decision_id')} requested by api-user")
 
     return {
         "status": "ok",
