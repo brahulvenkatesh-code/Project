@@ -20,7 +20,7 @@ logger = logging.getLogger("ps2-api")
 
 API_USERNAME = os.environ.get("API_USERNAME", "admin")
 API_PASSWORD = os.environ.get("API_PASSWORD", "supersecurepassword")
-API_JWT_SECRET = os.environ.get("API_JWT_SECRET", "my-super-secret-jwt-key")
+API_JWT_SECRET = os.environ.get("API_JWT_SECRET", "super-secret-risk-governance-key")
 
 # ── Decision Bridge: Stores last decision per session for simplified chat ─────
 # In a real enterprise app, use Redis/Postgres. For this challenge: in-memory.
