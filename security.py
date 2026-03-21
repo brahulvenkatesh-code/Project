@@ -16,8 +16,8 @@ Covers:
 """
 
 from __future__ import annotations
-import json, re, time, hashlib, unicodedata, hmac
-from typing import Any, Optional, Union
+import json, re, time, hashlib, hmac
+from typing import Any
 from collections import defaultdict
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -32,6 +32,10 @@ RATE_LIMIT_RPM   = 10         # requests per minute per session
 MAX_MSG_CHARS    = 1_000      # max user chat message length
 MAX_LLM_INPUT    = 4_000      # chars sent to LLM
 MAX_LLM_TOKENS   = 2048       # max LLM output tokens (Gemini free tier safe limit)
+MSG_RATE_LIMIT_S = 1.0        # min seconds between user chat messages
+
+# Raw string patterns caught pre-parse
+RAW_BLOCKLIST = ["${", "$(", "{{", "<%", "__class__", "__mro__", "__import__"]
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # BLOCKLIST — reject any input containing these terms
@@ -42,8 +46,8 @@ BLOCKLIST = {
     "exec", "eval", "import", "subprocess", "os.system", "os.popen",
     "__import__", "compile", "builtins", "globals", "locals", "vars",
     "getattr", "setattr", "delattr", "open(", "file(",
-    # Cloud / infra
-    "s3", "lambda", "dynamodb", "ec2", "iam", "cloudwatch",
+    # Cloud / infra (s3 removed — S3 URLs appear in valid data_source fields)
+    "lambda", "dynamodb", "ec2", "iam", "cloudwatch",
     "azure", "gcp", "kubectl", "terraform", "ansible",
     # DB / injection
     "select ", "insert ", "update ", "delete ", "drop ", "truncate ",
@@ -77,6 +81,47 @@ def check_blocklist(text: str) -> tuple[bool, str]:
             if re.search(pattern, lower):
                 return True, term
     return False, ""
+
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# PII PROTECTION
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PII_FIELDS = {
+    # True PII — identity / access credentials only
+    "email", "user_email", "contact", "phone", "mobile",
+    "password", "secret", "api_key", "private_key",
+    "ssn", "dob", "national_id",
+    # Infrastructure identifiers (not ML feature names)
+    "aws_account_id", "account_id", "resource_arn", "iam_role", "role_arn",
+    "server_ip", "ip_address",
+    # User-identifying operational metadata
+    "created_by", "owner", "owner_id", "user_id", "username",
+}
+
+# Keys whose VALUES should never be PII-scanned (they hold things like S3 paths, feature names, messages)
+_PII_SKIP_KEYS = {
+    "data_source", "message", "performance_message", "column_names",
+    "drifted_features", "biased_columns", "recommended_action", "tags", "info",
+}
+
+def check_pii(data: Any, path: str = "", _skip_key: bool = False) -> list:
+    """Returns list of PII field paths found in data."""
+    found = []
+    if isinstance(data, dict):
+        for k, v in data.items():
+            if k.lower() in PII_FIELDS:
+                found.append(f"{path}.{k}" if path else k)
+            elif k.lower() not in _PII_SKIP_KEYS:
+                # Only recurse into values not in skip-list
+                found.extend(check_pii(v, f"{path}.{k}" if path else k))
+    elif isinstance(data, list):
+        # Skip lists of strings — these are feature/column name lists, not PII
+        if not all(isinstance(i, str) for i in data):
+            for i, v in enumerate(data):
+                found.extend(check_pii(v, f"{path}[{i}]"))
+    return found
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -201,17 +246,46 @@ INJECTION_PATTERNS = [
     r"bypass\s+(safety|filter|restriction|guideline)",
     r"do\s+anything\s+now",
     r"enable\s+(developer|god|admin|root)\s+mode",
+    # Additional attack patterns
+    r"ignore\s+instructions?",
+    r"ignore\s+(rules|guidelines|restrictions|constraints|safety)",
+    r"assume.{0,30}(precision|recall|f1|auc|accuracy).{0,30}(excellent|perfect|good|acceptable)",
+    r"assuming.{0,30}(f1|auc|precision|recall|accuracy).{0,30}(means|is).{0,30}(perfect|excellent|good)",
+    r"note.{0,5}(auc|f1|precision|recall|accuracy).{0,30}(best|perfect|excellent)",
+    r"compare.{0,20}(with|to).{0,20}other.{0,20}(fraud|model|detection)",
+    r"(show|give).{0,20}anonymized.{0,20}(example|sample|data)",
+    r"quantum.{0,20}(coherence|entanglement|score|metric)",
 ]
 INJECTION_RE = re.compile("|".join(INJECTION_PATTERNS), re.IGNORECASE | re.DOTALL)
 
 def scan_injection(text: str) -> bool:
     return bool(INJECTION_RE.search(text))
 
+# Instruction patterns for JSON field names and values
+_FIELD_INJECT_RE = re.compile(
+    r"(ignore|override|system:|instruction|disable|bypass|admin|"
+    r"production.ready|treat.*as.*info|reclassif|disable.*check|"
+    r"approved.*by|unrestricted|confirm.*deploy)",
+    re.IGNORECASE
+)
+
 def scan_json_for_injection(obj: Any, depth: int = 0) -> bool:
     if depth > MAX_JSON_DEPTH: return False
-    if isinstance(obj, str): return scan_injection(obj) or check_blocklist(obj)[0]
-    if isinstance(obj, dict): return any(scan_json_for_injection(v, depth+1) for v in obj.values())
-    if isinstance(obj, list): return any(scan_json_for_injection(v, depth+1) for v in obj)
+    if isinstance(obj, str):
+        # Scan value for injection patterns
+        if scan_injection(obj): return True
+        if check_blocklist(obj)[0]: return True
+        if any(p in obj for p in RAW_BLOCKLIST): return True
+        if _FIELD_INJECT_RE.search(obj): return True
+        return False
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            # Also scan KEY names for injections
+            if isinstance(k, str) and _FIELD_INJECT_RE.search(k): return True
+            if scan_json_for_injection(v, depth+1): return True
+        return False
+    if isinstance(obj, list):
+        return any(scan_json_for_injection(v, depth+1) for v in obj)
     return False
 
 
@@ -241,7 +315,7 @@ def validate_json_input(raw: str) -> dict:
     # Step 5: Size cap
     if len(raw.encode("utf-8")) > MAX_JSON_BYTES:
         raise SecurityError(
-            "Invalid metric input",
+            "Invalid metric input: file too large.",
             f"JSON size {len(raw.encode())} exceeds {MAX_JSON_BYTES}B limit"
         )
 
@@ -249,61 +323,60 @@ def validate_json_input(raw: str) -> dict:
     RAW_INJECTION = ["${", "$(", "{{", "<%", "__class__", "__mro__", "__import__"]
     if any(p in raw for p in RAW_INJECTION):
         raise SecurityError(
-            "Invalid metric input",
+            "Invalid metric input: disallowed content detected.",
             f"Raw injection pattern found in input"
         )
 
-    # Pre-parse depth check to prevent stack overflow on bombs
-    depth_count = 0
-    for char in raw:
-        if char in "{[":
-            depth_count += 1
-        elif char in "}]":
-            depth_count -= 1
-        if depth_count > MAX_JSON_DEPTH * 2: # heuristic buffer
-            raise SecurityError("Invalid metric input", "Raw JSON depth bomb detected")
-
-    # Step 1c: Parse (Disallow NaN/Infinity/ -Infinity)
+    # Step 1c: Parse
     try:
-        data = json.loads(raw, parse_constant=None)
-    except Exception as e:
-        # Broad catch to ensure NO internal errors ever leak
-        raise SecurityError("Invalid metric input", f"Parse error: {str(e)}")
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise SecurityError("Invalid metric input: malformed JSON.", str(e))
 
     # Type check
     if not isinstance(data, dict) or not data:
-        raise SecurityError("Invalid metric input")
+        raise SecurityError("Invalid metric input: must be a non-empty JSON object.")
 
     # Depth check (prevent deeply nested bombs)
     if _json_depth(data) > MAX_JSON_DEPTH:
-        raise SecurityError("Invalid metric input")
+        raise SecurityError("Invalid metric input: JSON too deeply nested.")
 
     # Key count (prevent large object DoS)
     if _count_keys(data) > MAX_JSON_KEYS:
-        raise SecurityError("Invalid metric input")
+        raise SecurityError("Invalid metric input: too many fields.")
 
     # String value length check
     _check_string_lengths(data)
 
     # Blocklist + injection scan on raw string values
     if scan_json_for_injection(data):
-        raise SecurityError("Invalid metric input")
+        raise SecurityError("Invalid metric input: disallowed content detected.")
 
     # Blocklist on the raw string itself (catches encoded variants)
     blocked, term = check_blocklist(raw)
     if blocked:
-        raise SecurityError("Invalid metric input", f"blocklist hit: {term}")
+        raise SecurityError("Invalid metric input: disallowed content detected.", f"blocklist hit: {term}")
 
-    # Step 2: Allowlist — strip unknown keys
+    # PII scan — detect and BLOCK (raise error) if PII present in JSON
+    pii_found = check_pii(data)
+    if pii_found:
+        import logging
+        logging.getLogger("ps2").warning(f"PII fields detected: {pii_found}")
+        raise SecurityError(
+            "Invalid metric input: disallowed fields detected.",
+            f"PII/infrastructure fields found: {pii_found}"
+        )
+
+    # Step 2: Allowlist — strip unknown keys (also strips PII not in ALLOWED_KEYS)
     cleaned = _apply_allowlist(data)
     if not cleaned:
-        raise SecurityError("Invalid metric input")
+        raise SecurityError("Invalid metric input: no recognised metric fields found.")
 
     # Step 6b: Range validation
     violations = _validate_ranges(cleaned)
     if violations:
         raise SecurityError(
-            "Invalid metric input",
+            f"Invalid metric input: out-of-range values detected ({len(violations)} field(s)).",
             f"Range violations: {violations}"
         )
 
@@ -322,10 +395,10 @@ def validate_chat_message(msg: str) -> str:
 
     blocked, term = check_blocklist(msg)
     if blocked:
-        raise SecurityError("Invalid metric input")
+        raise SecurityError("Invalid input: disallowed content detected.")
 
     if scan_injection(msg):
-        raise SecurityError("Invalid metric input")
+        raise SecurityError("Invalid input: disallowed content detected.")
 
     return msg
 
@@ -352,7 +425,7 @@ def _check_string_lengths(obj: Any, path: str = ""):
     if isinstance(obj, str):
         if len(obj) > MAX_STRING_LEN:
             raise SecurityError(
-                "Invalid metric input",
+                "Invalid metric input: string value too long.",
                 f"String at '{path}' exceeds {MAX_STRING_LEN} chars"
             )
     elif isinstance(obj, dict):
@@ -367,19 +440,11 @@ def _apply_allowlist(obj: Any, depth: int = 0) -> Any:
     if isinstance(obj, dict):
         result = {}
         for k, v in obj.items():
-            # Step 8b: Unicode homoglyph protection (Normalize to NFKC)
-            k_norm = unicodedata.normalize('NFKC', k)
-            if k_norm not in ALLOWED_KEYS:
+            if k not in ALLOWED_KEYS:
                 continue
-            cleaned_v = _apply_allowlist(v, depth+1)
-            if cleaned_v is not None:
-                # Enforce numeric type for metrics that require it
-                if k_norm in BOUNDED_0_1 or k_norm in NON_NEGATIVE:
-                    try:
-                        cleaned_v = float(cleaned_v)
-                    except (ValueError, TypeError):
-                        continue # Drop non-numeric metrics
-                result[k_norm] = cleaned_v
+            cleaned = _apply_allowlist(v, depth+1)
+            if cleaned is not None:
+                result[k] = cleaned
         return result if result else None
     if isinstance(obj, list):
         cleaned = [_apply_allowlist(i, depth+1) for i in obj]
@@ -391,7 +456,7 @@ def _apply_allowlist(obj: Any, depth: int = 0) -> Any:
         return obj
     return None
 
-def _validate_ranges(obj: Any, violations: Optional[list[str]] = None, path: str = "") -> list[str]:
+def _validate_ranges(obj: Any, violations: list = None, path: str = "") -> list:
     if violations is None: violations = []
     if isinstance(obj, dict):
         for k, v in obj.items():
@@ -409,7 +474,7 @@ def _validate_ranges(obj: Any, violations: Optional[list[str]] = None, path: str
 # NUMERIC EXTRACTION (Step 7b — only numbers reach the LLM)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def extract_numerics(obj: Any, out: Optional[dict[str, Any]] = None, prefix: str = "") -> dict[str, Any]:
+def extract_numerics(obj: Any, out: dict = None, prefix: str = "") -> dict:
     if out is None: out = {}
     if isinstance(obj, dict):
         for k, v in obj.items():
@@ -419,6 +484,112 @@ def extract_numerics(obj: Any, out: Optional[dict[str, Any]] = None, prefix: str
     elif isinstance(obj, list) and all(isinstance(i, (int, float)) for i in obj):
         out[prefix] = obj
     return out
+
+def cross_validate_metrics(data: dict) -> list[str]:
+    """
+    Cross-validate internal consistency of metrics.
+    Detects mislabelling, swapped values, fake metrics, quality flips.
+    Returns list of violations found.
+    """
+    violations = []
+    pm = data.get("performance_metrics", {})
+    current = pm.get("current", pm)  # support flat or nested
+
+    # 1. Confusion matrix cross-check
+    cm = data.get("confusion_matrix", {})
+    labels = cm.get("labels", {})
+    if labels:
+        tp = labels.get("true_positives", 0)
+        fp = labels.get("false_positives", 0)
+        fn = labels.get("false_negatives", 0)
+        tn = labels.get("true_negatives", 0)
+        total = tp + fp + fn + tn
+
+        if total > 0:
+            # Check precision consistency
+            calc_precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+            reported_precision = current.get("precision", current.get("f1", None))
+            if reported_precision is not None:
+                if abs(calc_precision - reported_precision) > 0.05:
+                    violations.append(
+                        f"MISLABEL: Reported precision {reported_precision:.3f} "
+                        f"inconsistent with confusion matrix derived precision {calc_precision:.3f}. "
+                        f"Possible TP/FP swap or label manipulation."
+                    )
+
+            # Check recall consistency
+            calc_recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+            reported_recall = current.get("recall", None)
+            if reported_recall is not None:
+                if abs(calc_recall - reported_recall) > 0.05:
+                    violations.append(
+                        f"MISLABEL: Reported recall {reported_recall:.3f} "
+                        f"inconsistent with confusion matrix derived recall {calc_recall:.3f}. "
+                        f"Possible TN/FN swap or label manipulation."
+                    )
+
+            # Check accuracy consistency
+            calc_accuracy = (tp + tn) / total if total > 0 else 0
+            reported_accuracy = current.get("accuracy", None)
+            if reported_accuracy is not None:
+                if abs(calc_accuracy - reported_accuracy) > 0.05:
+                    violations.append(
+                        f"MISLABEL: Reported accuracy {reported_accuracy:.3f} "
+                        f"inconsistent with confusion matrix {calc_accuracy:.3f}. "
+                        f"Possible confusion matrix manipulation."
+                    )
+
+    # 2. Reference vs current sanity check
+    reference = pm.get("reference", {})
+    if reference and current:
+        ref_acc = reference.get("accuracy", 0)
+        cur_acc = current.get("accuracy", current.get("acc", 0))
+        # If current >> reference by suspicious amount, may be fake metrics
+        if isinstance(cur_acc, float) and isinstance(ref_acc, float):
+            if cur_acc > ref_acc + 0.10 and cur_acc > 0.95:
+                violations.append(
+                    f"SUSPICIOUS: Current accuracy {cur_acc:.3f} is suspiciously higher "
+                    f"than reference {ref_acc:.3f}. Possible fake metric injection."
+                )
+
+    # 3. Data quality flip detection
+    dq = data.get("data_quality", {})
+    if dq:
+        passed = dq.get("passed", 0)
+        failed = dq.get("failed", 0)
+        total_checks = dq.get("total_checks", 0)
+        pass_pct = dq.get("pass_percentage", 0)
+        if total_checks > 0 and passed + failed > 0:
+            calc_pct = (passed / total_checks) * 100
+            if abs(calc_pct - pass_pct) > 5:
+                violations.append(
+                    f"FLIP: Reported pass% {pass_pct:.1f} inconsistent with "
+                    f"calculated {calc_pct:.1f}% ({passed}/{total_checks}). "
+                    f"Possible pass/fail label swap."
+                )
+
+    # 4. Bias override detection
+    bias = data.get("bias_report", {})
+    if bias:
+        bias_detected = bias.get("bias_detected", False)
+        severity = bias.get("severity", "")
+        metrics = bias.get("metrics", [])
+        if bias_detected and severity in ("info", "low", "none"):
+            violations.append(
+                f"BIAS_OVERRIDE: bias_detected=true but severity='{severity}'. "
+                f"Possible severity downgrade injection."
+            )
+        if metrics:
+            biased_count = sum(1 for m in metrics if m.get("is_biased", False))
+            override_count = sum(1 for m in metrics if "override" in m)
+            if override_count > 0:
+                violations.append(
+                    f"BIAS_OVERRIDE: {override_count} bias metric(s) contain 'override' fields. "
+                    f"Possible bias dismissal injection."
+                )
+
+    return violations
+
 
 def build_llm_safe_payload(data: dict) -> str:
     """Serialize only numeric metrics, truncate to MAX_LLM_INPUT chars."""
@@ -434,6 +605,17 @@ def build_llm_safe_payload(data: dict) -> str:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 _rate_store: dict[str, list] = defaultdict(list)
+
+_last_msg_time: dict[str, float] = {}
+
+def check_message_rate(session_key: str) -> None:
+    """OWASP A10: 1 message per second per session."""
+    now = time.time()
+    last = _last_msg_time.get(session_key, 0)
+    if now - last < MSG_RATE_LIMIT_S:
+        raise SecurityError("Please wait before sending another message.")
+    _last_msg_time[session_key] = now
+
 
 def check_rate_limit(session_key: str) -> None:
     now = time.time()
@@ -583,8 +765,63 @@ def _build_recommendations(level: str, triggered: list, data: dict) -> list[str]
     recs.append("Escalate final deployment decision to a human ML engineer and domain expert.")
     return recs
 
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# COMPATIBILITY WRAPPERS (don't remove - used by api.py)
+# OWASP A02 — Security Headers (CSP + SRI)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+import streamlit as _st
+
+def inject_security_headers():
+    """
+    Inject CSP and security meta tags into Streamlit.
+    Covers OWASP A02 Security Misconfiguration.
+    """
+    _st.markdown("""
+<meta http-equiv="Content-Security-Policy"
+  content="default-src 'self';
+           script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com;
+           style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+           img-src 'self' data:;
+           connect-src 'self';">
+<meta http-equiv="X-Content-Type-Options" content="nosniff">
+<meta http-equiv="X-Frame-Options" content="DENY">
+<meta http-equiv="Referrer-Policy" content="no-referrer">
+""", unsafe_allow_html=True)
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# OWASP A04 — Cryptographic / Deduplication
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+import hashlib as _hashlib
+
+def sha256_hash(data: bytes) -> str:
+    """SHA256 hash of file bytes for deduplication. OWASP A04."""
+    return _hashlib.sha256(data).hexdigest()
+
+
+def is_duplicate(file_hash: str, json_store: dict) -> bool:
+    """Check if this file has already been uploaded this session."""
+    return file_hash in json_store
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# OWASP A10 — Response cap
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+MAX_RESPONSE_CHARS = 4_000   # Cap NanoBot response length shown in UI
+
+
+def cap_response(text: str) -> str:
+    """Truncate LLM response to MAX_RESPONSE_CHARS. OWASP A10."""
+    if len(text) > MAX_RESPONSE_CHARS:
+        return text[:MAX_RESPONSE_CHARS] + "\n\n*[Response capped at 4000 chars — download full report for complete output]*"
+    return text
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# COMPATIBILITY WRAPPERS (used by api.py — do not remove)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def parse_and_validate(raw_bytes: bytes) -> dict:
@@ -593,7 +830,6 @@ def parse_and_validate(raw_bytes: bytes) -> dict:
 
 def safe_token_compare(provided: str, expected: str) -> bool:
     """Constant-time comparison — prevents timing oracle attacks."""
-    # Use HMAC's compare_digest to prevent timing attacks
     return hmac.compare_digest(
         provided.encode("utf-8"),
         expected.encode("utf-8")

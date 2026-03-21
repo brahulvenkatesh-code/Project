@@ -38,52 +38,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Security Hardening (Ngrok + Host Validation) ──────────────────────────────
-_headers = getattr(st.context, "headers", {})
-
-# 1. Block ngrok-skip-browser-warning abuse
-if "ngrok-skip-browser-warning" in _headers:
-    st.error("Invalid Request Header.")
-    st.stop()
-
-# 2. Host Header Validation
-_allowed_host = os.environ.get("ALLOWED_HOST", "")
-_host = _headers.get("Host", "").split(":")[0].lower()  # ignore port
-if _host:
-    if not (_host.endswith(".ngrok-free.app") or 
-            _host.endswith(".ngrok-free.dev") or 
-            _host.endswith(".up.railway.app") or
-            _host == "localhost" or 
-            _host == "127.0.0.1" or 
-            (_allowed_host and _host == _allowed_host.split(":")[0].lower())):
-        st.error(f"Invalid Host: {_host}. Please check your ALLOWED_HOST config.")
-        st.stop()
-
-# 4. Sensitive Path Protection
-_ref = _headers.get("Referer", "").lower()
-_qp = str(st.query_params).lower()
-_sensitive_paths = [".env", ".git", "config", "admin", "__pycache__"]
-if any(p in _ref for p in _sensitive_paths) or any(p in _qp for p in _sensitive_paths):
-    st.error("Security policy violation: restricted path accessed.")
-    st.stop()
-
-# 3. Request Rate Tracking (20 interactions / 60s)
-if "req_history" not in st.session_state:
-    st.session_state.req_history = []
-_now = time.time()
-st.session_state.req_history = [t for t in st.session_state.req_history if _now - t < 60]
-if len(st.session_state.req_history) >= 20:
-    st.error("Rate limit exceeded. Too many interactions in 60 seconds.")
-    st.stop()
-st.session_state.req_history.append(_now)
-
-# Category 4: Content-Security-Policy (CSP)
-st.markdown("""
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' https://fonts.gstatic.com;">
-""", unsafe_allow_html=True)
-
-# Host header protection removed for simplicity
-
 # ── Custom CSS ────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
@@ -99,7 +53,7 @@ st.markdown("""
   .nb-header {
     display: flex; align-items: center; gap: 12px;
     padding: 14px 20px; background: #13161e;
-    border-bottom: 1px solid #252a38; margin: 0 -2rem 1.5rem;
+    border-bottom: 1px solid #252a38; margin: -1.5rem -2rem 1.5rem;
   }
   .nb-dot { width:10px;height:10px;border-radius:50%;background:#00e5ff;
     animation: pulse 2s infinite; }
@@ -128,20 +82,8 @@ st.markdown("""
 
   /* Metric card */
   .metric-card {
-    background: rgba(19, 22, 30, 0.65);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 14px;
-    padding: 16px 20px;
-    margin: 6px 0;
-    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
-  }
-  .metric-card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.4);
-    border: 1px solid rgba(0, 229, 255, 0.3);
+    background:#13161e;border:1px solid #252a38;border-radius:10px;
+    padding:16px 20px;margin:6px 0;
   }
   .metric-card h4 { margin:0 0 4px;font-size:13px;color:#6b7694;
     font-family:'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.08em; }
@@ -150,59 +92,39 @@ st.markdown("""
 
   /* Chat bubbles */
   .chat-user { background:#2d1f5e;border-radius:12px 12px 3px 12px;
-    padding:10px 14px;margin:6px 0 6px 40px;font-size:13px;line-height:1.6;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
-  .chat-bot { background:rgba(19, 22, 30, 0.8);backdrop-filter:blur(8px);border:1px solid rgba(255, 255, 255, 0.08);
+    padding:10px 14px;margin:6px 0 6px 40px;font-size:13px;line-height:1.6; }
+  .chat-bot { background:#13161e;border:1px solid #252a38;
     border-radius:12px 12px 12px 3px;padding:10px 14px;
-    margin:6px 40px 6px 0;font-size:13px;line-height:1.6;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+    margin:6px 40px 6px 0;font-size:13px;line-height:1.6; }
   .chat-label { font-family:'IBM Plex Mono',monospace;font-size:10px;
     color:#6b7694;margin-bottom:3px; }
 
   /* Section divider */
   .section-title { font-size:12px;font-weight:600;text-transform:uppercase;
     letter-spacing:.12em;color:#6b7694;margin:20px 0 10px;
-    border-bottom:1px solid rgba(37, 42, 56, 0.5);padding-bottom:6px; }
+    border-bottom:1px solid #252a38;padding-bottom:6px; }
 
   /* Stray streamlit defaults */
-  .stTextArea textarea { background:rgba(19, 22, 30, 0.5)!important;color:#e2e8f0!important;
+  .stTextArea textarea { background:#13161e!important;color:#e2e8f0!important;
     border:1px solid #252a38!important;font-family:'IBM Plex Mono',monospace!important;
-    font-size:12px!important; transition: border-color 0.3s ease; }
-  .stTextArea textarea:focus { border-color: #00e5ff!important; box-shadow: 0 0 0 1px #00e5ff!important; }
-  .stButton>button { 
-    background: linear-gradient(135deg, #7b61ff 0%, #00e5ff 100%) !important;
-    color: #fff !important;
-    border: none !important;
-    border-radius: 8px !important;
-    font-weight: 600 !important;
-    transition: all 0.2s ease-in-out !important;
-    box-shadow: 0 4px 12px rgba(123, 97, 255, 0.3) !important;
-  }
-  .stButton>button:hover { 
-    transform: scale(1.02) !important;
-    box-shadow: 0 6px 16px rgba(0, 229, 255, 0.4) !important;
-  }
+    font-size:12px!important; }
+  .stButton>button { background:#7b61ff!important;color:#fff!important;
+    border:none!important;border-radius:6px!important;font-weight:500!important; }
+  .stButton>button:hover { background:#9b7fff!important; }
   .stTabs [data-baseweb="tab"] { background:transparent; }
   div[data-testid="stSidebar"] { background:#0d0f14!important;
     border-right:1px solid #252a38!important; }
-  .stDataFrame { background:rgba(19, 22, 30, 0.5); }
+  .stDataFrame { background:#13161e; }
   
   /* Report styling */
   .report-card {
-    background: rgba(19, 22, 30, 0.7);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 16px;
+    background: #13161e;
+    border: 1px solid #252a38;
+    border-radius: 12px;
     padding: 24px;
     margin: 10px 0;
     line-height: 1.7;
     color: #e2e8f0;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
-  }
-  .report-card:hover {
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
   }
   .report-card h1, .report-card h2, .report-card h3 {
     color: #00e5ff;
@@ -252,100 +174,33 @@ def run_async(coro):
         logger.error(f"Async error: {e}")
         raise
 
-def load_and_validate(raw_json: str, file_name: str = "source.json", skip_rate_limit: bool = False) -> bool:
-    """Full validation pipeline with SHA256 deduplication and fallback LLM parsing."""
-    import hashlib
-    import json
-    
-    file_hash = hashlib.sha256(raw_json.encode("utf-8")).hexdigest()
-    
-    if "json_store" not in st.session_state:
-        st.session_state.json_store = {}
-        
-    if file_hash in st.session_state.json_store:
-        cached = st.session_state.json_store[file_hash]
-        st.session_state.metrics_raw   = raw_json
-        st.session_state.metrics_clean = cached["data"]
-        st.session_state.metrics_llm   = cached.get("data_llm", build_llm_safe_payload(cached["data"]))
-        st.session_state.risk          = cached["risk"]
-        st.session_state.analyzed      = False
-        st.session_state.analysis      = None
-        st.session_state.active_model_hash = file_hash
-        log_event("loaded_from_cache", f"hash={file_hash[:8]}")
-        st.toast(f"Loaded from cache: {file_hash[:8]}")
-        return True
-
-    if not skip_rate_limit:
-        try:
-            check_rate_limit(st.session_state.session_id)
-        except SecurityError as e:
-            st.error(str(e.public_msg))
-            log_event("rate_limit", str(e), error=True)
-            return False
+def load_and_validate(raw_json: str) -> bool:
+    """Full validation pipeline. Returns True on success."""
+    try:
+        check_rate_limit(st.session_state.session_id)
+    except SecurityError as e:
+        st.error(str(e.public_msg))
+        log_event("rate_limit", str(e), error=True)
+        return False
 
     try:
-        cleaned_list = []
-        try:
-            # First try standard validation
-            cleaned = validate_json_input(raw_json)
-            cleaned_list.append(cleaned)
-        except SecurityError as e:
-            # Fallback to LLM parser if validation fails
-            from llm_parser import parse_unstructured_metrics
-            with st.spinner("Parsing unstructured metrics using NanoBot..."):
-                parsed_items = run_async(parse_unstructured_metrics(raw_json))
-                if not parsed_items:
-                    raise SecurityError("LLM failed to parse any valid metrics from the input.")
-                
-                # Check each item returned by LLM
-                for item in parsed_items:
-                    try:
-                        c = validate_json_input(json.dumps(item))
-                        cleaned_list.append(c)
-                    except SecurityError:
-                        continue
-            
-            if not cleaned_list:
-                raise SecurityError("Could not extract valid Trinity metrics from the input.")
-
-        # Process all successfully cleaned and validated models
-        success = False
-        for idx, cleaned in enumerate(cleaned_list):
-            llm_payload = build_llm_safe_payload(cleaned)
-            risk        = run_weighted_risk(cleaned)
-            
-            # Create a unique sub-hash for each model if multiple were extracted
-            if len(cleaned_list) > 1:
-                sub_hash = hashlib.sha256(json.dumps(cleaned).encode("utf-8")).hexdigest()
-                fname = f"{file_name}_part_{idx+1}"
-            else:
-                sub_hash = file_hash
-                fname = file_name
-
-            st.session_state.json_store[sub_hash] = {
-                "file": fname,
-                "data": cleaned,
-                "data_llm": llm_payload,
-                "risk": risk,
-                "timestamp": datetime.now(UTC).isoformat()
-            }
-
-            # Set the last one as Active
-            st.session_state.metrics_raw   = raw_json
-            st.session_state.metrics_clean = cleaned
-            st.session_state.metrics_llm   = llm_payload
-            st.session_state.risk          = risk
-            st.session_state.analyzed      = False
-            st.session_state.analysis      = None
-            st.session_state.active_model_hash = sub_hash
-            log_event("loaded", f"risk={risk['level']}, hash={sub_hash[:8]}")
-            success = True
-            
-        return success
+        cleaned = validate_json_input(raw_json)
     except SecurityError as e:
         st.error(str(e.public_msg))
         log_event("validation_fail", e.internal, error=True)
         return False
+
+    llm_payload = build_llm_safe_payload(cleaned)
+    risk        = run_weighted_risk(cleaned)
+
+    st.session_state.metrics_raw   = raw_json
+    st.session_state.metrics_clean = cleaned
+    st.session_state.metrics_llm   = llm_payload
+    st.session_state.risk          = risk
+    st.session_state.analyzed      = False
+    st.session_state.analysis      = None
+    log_event("loaded", f"risk={risk['level']}, keys={list(cleaned.keys())[:5]}")
+    return True
 
 SAMPLE_JSONS = {
     "Classification (fraud detection)": "sample_metrics/sample1_classification.json",
@@ -382,19 +237,18 @@ with st.sidebar:
 
     elif input_mode == "Upload file":
         uploaded = st.file_uploader(
-            "Upload JSON", type=["json", "txt", "csv"],
-            accept_multiple_files=True,
+            "Upload JSON", type=["json"],
+            accept_multiple_files=False,
             label_visibility="collapsed",
         )
-        raw_input_list = []
         if uploaded:
-            for u in uploaded:
-                size = u.size
-                if size > MAX_JSON_BYTES:
-                    st.error(f"File {u.name} too large (max {MAX_JSON_BYTES//1000} KB).")
-                else:
-                    raw_input_list.append((u.read().decode("utf-8", errors="replace"), u.name))
-                    st.caption(f"📄 {u.name} — {size:,} bytes")
+            # Step 1: size check before reading
+            size = uploaded.size
+            if size > MAX_JSON_BYTES:
+                st.error(f"Invalid metric input: file too large (max {MAX_JSON_BYTES//1000} KB).")
+            else:
+                raw_input = uploaded.read().decode("utf-8", errors="replace")
+                st.caption(f"📄 {uploaded.name} — {size:,} bytes")
 
     elif input_mode == "Load sample":
         sample_choice = st.selectbox("Select sample", list(SAMPLE_JSONS.keys()),
@@ -416,61 +270,17 @@ with st.sidebar:
         swap_btn = st.button("⇄ Swap", width="stretch",
                              disabled=not st.session_state.analyzed)
 
-    if load_btn:
-        if input_mode == "Upload file" and uploaded:
-            st.session_state.json_store = {} # Clear past models on new explicit multiple load
-            try:
-                check_rate_limit(st.session_state.session_id)
-            except SecurityError as e:
-                st.error(str(e.public_msg))
-                st.stop()
-            for raw, name in raw_input_list:
-                load_and_validate(raw, name, skip_rate_limit=True)
+    if load_btn and raw_input:
+        if load_and_validate(raw_input):
             st.success("✅ Metrics loaded and validated.")
-        elif raw_input:
-            fname = "pasted_or_sample.json"
-            if load_and_validate(raw_input, fname):
-                st.success("✅ Metrics loaded and validated.")
-        else:
-            st.warning("Please provide a JSON source first.")
 
-    if swap_btn:
+    if swap_btn and raw_input:
         st.session_state.swap_count += 1
-        if input_mode == "Upload file" and uploaded:
-            try:
-                check_rate_limit(st.session_state.session_id)
-            except SecurityError as e:
-                st.error(str(e.public_msg))
-                st.stop()
-            for raw, name in raw_input_list:
-                load_and_validate(raw, name, skip_rate_limit=True)
+        if load_and_validate(raw_input):
             st.success(f"✅ Source swapped (#{st.session_state.swap_count}). Re-run analysis.")
-        elif raw_input:
-            fname = "pasted_or_sample.json"
-            if load_and_validate(raw_input, fname):
-                st.success(f"✅ Source swapped (#{st.session_state.swap_count}). Re-run analysis.")
 
-    # Show active model selector if there are multiple
-    if "json_store" in st.session_state and len(st.session_state.json_store) > 1:
-        st.divider()
-        st.markdown('<div class="section-title">Active Model</div>', unsafe_allow_html=True)
-        options = list(st.session_state.json_store.keys())
-        format_func = lambda x: st.session_state.json_store[x]["file"]
-        
-        active_hash = st.session_state.get("active_model_hash")
-        default_idx = options.index(active_hash) if active_hash in options else 0
-        
-        selected_hash = st.selectbox("Select model to view", options, format_func=format_func, index=default_idx)
-        if selected_hash != active_hash:
-            st.session_state.active_model_hash = selected_hash
-            cached = st.session_state.json_store[selected_hash]
-            st.session_state.metrics_raw   = json.dumps(cached["data"])
-            st.session_state.metrics_clean = cached["data"]
-            st.session_state.metrics_llm   = cached["data_llm"]
-            st.session_state.risk          = cached["risk"]
-            st.session_state.analyzed      = False
-            st.session_state.analysis      = None
-            st.rerun()
+    if not raw_input and load_btn:
+        st.warning("Please provide a JSON source first.")
 
     # Show current load status
     st.divider()
@@ -659,20 +469,20 @@ with tab_overview:
         from xai import confusion_matrix_chart, radar_chart
         fig = confusion_matrix_chart(data)
         if fig:
-            st.plotly_chart(fig, width="stretch")
+            st.plotly_chart(fig, use_container_width=True)
         else:
             fig = radar_chart(data)
             if fig:
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, use_container_width=True)
     with viz_col2:
         from xai import latency_chart, drift_gauge
         fig = drift_gauge(data)
         if fig:
-            st.plotly_chart(fig, width="stretch")
+            st.plotly_chart(fig, use_container_width=True)
         else:
             fig = latency_chart(data)
             if fig:
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, use_container_width=True)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -696,7 +506,7 @@ with tab_xai:
                "Longer bar = higher influence on the final risk score.")
     fig = shap_feature_importance(data)
     if fig:
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("Insufficient metric signals for SHAP analysis.")
 
@@ -708,7 +518,7 @@ with tab_xai:
                "deployment readiness at the decision boundary.")
     fig = lime_boundary_explanation(data)
     if fig:
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("Insufficient data for LIME explanation.")
 
@@ -726,7 +536,7 @@ with tab_xai:
             if "❌" in str(val): return "color: #E24B4A"
             return ""
         styled = df.style            .map(color_status, subset=["Status"])            .background_gradient(subset=["Weight"], cmap="RdYlGn", vmin=-1, vmax=1)            .format({"Value": "{:.4f}", "Weight": "{:+.3f}"})
-        st.dataframe(styled, width="stretch", hide_index=True)
+        st.dataframe(styled, use_container_width=True, hide_index=True)
     else:
         st.info("No ELI5-compatible metrics in loaded JSON.")
 
@@ -740,13 +550,13 @@ with tab_xai:
     with curve_col1:
         fig = roc_curve_chart(data)
         if fig:
-            st.plotly_chart(fig, width="stretch")
+            st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("AUC-ROC not present in loaded metrics.")
     with curve_col2:
         fig = pr_curve_chart(data)
         if fig:
-            st.plotly_chart(fig, width="stretch")
+            st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("Precision/Recall not present in loaded metrics.")
 
@@ -757,7 +567,7 @@ with tab_xai:
     if fig:
         st.markdown('<div class="section-title">Per-Class Performance</div>', unsafe_allow_html=True)
         st.caption("Precision, Recall and F1 breakdown per class — identifies which classes are underperforming.")
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -768,33 +578,6 @@ with tab_analysis:
                 unsafe_allow_html=True)
     st.caption("NanoBot explains the numeric metrics in plain English. Risk is determined separately by the deterministic rule engine — not by the LLM.")
 
-    if "json_store" in st.session_state and len(st.session_state.json_store) > 1:
-        st.markdown('### ⚖️ Multi-Model Comparison')
-        if st.button("⚖️ Run Cross-Model Workflow Report", width="content"):
-            try:
-                check_rate_limit(st.session_state.session_id)
-            except SecurityError as e:
-                st.error(str(e.public_msg))
-                st.stop()
-            with st.spinner("NanoBot is building a custom cross-referencing workflow report..."):
-                try:
-                    import json as _json
-                    multi_comp = {}
-                    for h, d in st.session_state.json_store.items():
-                        multi_comp[d["file"]] = {"risk_lvl": d["risk"]["level"], "score": d["risk"].get("weighted_breakdown", {}).get("final_score"), "metrics": d["data_llm"]}
-                    
-                    sys_msg = "You are a Senior ML Engineer. Compare the following models robustly and provide a definitive recommendation on which one is best suited for deployment based on their risk and metrics. Output in cleanly Markdown formatted report without filler phrases."
-                    user_msg = _json.dumps(multi_comp)
-                    comparison_res = run_async(call_nanobot(sys_msg, user_msg, max_tokens=2048))
-                    st.session_state.multi_analysis = comparison_res
-                except Exception as e:
-                    st.error(f"Multi-model analysis failed: {str(e)[:200]}")
-        
-        if st.session_state.get("multi_analysis"):
-            st.markdown(f'<div class="report-card">{markdown2.markdown(st.session_state.multi_analysis, extras=["tables", "fenced-code-blocks"])}</div>', unsafe_allow_html=True)
-        st.divider()
-
-    st.markdown('### Active Model Analysis')
     if not st.session_state.analyzed:
         if st.button("▶ Run NanoBot Analysis", width="content"):
             try:
@@ -819,10 +602,7 @@ with tab_analysis:
                 except Exception as e:
                     err = str(e)
                     if "429" in err or "quota" in err.lower():
-                        if "daily" in err.lower() or "requestsperday" in err.lower():
-                            st.error("Gemini DAILY quota exhausted. Please use a different API key or wait until tomorrow.")
-                        else:
-                            st.error("Gemini rate limit hit (RPM). Please wait 60 seconds and try again.")
+                        st.error("Gemini rate limit hit. Wait 1 minute and try again.")
                     elif "API_KEY" in err or "api key" in err.lower() or "invalid" in err.lower():
                         st.error(f"API key error: {err[:200]}")
                     elif "8192" in err or "token" in err.lower():
@@ -832,19 +612,21 @@ with tab_analysis:
                     log_event("analysis_error", err, error=True)
     else:
         analysis = st.session_state.analysis
-        
-        # Build full export report (now also used for UI rendering)
+        # Convert markdown to HTML for robust rendering inside the styled div
+        analysis_html = markdown2.markdown(analysis, extras=["tables", "fenced-code-blocks"])
+        st.markdown(f'<div class="report-card">{analysis_html}</div>', unsafe_allow_html=True)
+        st.divider()
+
+        # Build full export report
         risk      = st.session_state.risk
         triggered = risk.get("triggered", [])
         reg_hits  = risk.get("regulatory_hits", [])
         breakdown = risk.get("weighted_breakdown", {})
-        lvl       = risk["level"]
-        color     = risk["color"]
-        score     = breakdown.get("final_score", "—")
 
         reg_rows = ""
         for h in reg_hits:
-            reg_rows += f"| {h['metric']} | {h['value']} | {h['threshold']} | {h['nist_ref']} | {h['risk_label']} |\n"
+            recs = ", ".join(h.get("remediation", [])[:3])
+            reg_rows += f"| {h['metric']} | {h['threshold']} | {h['value']} | {h['nist_ref']} | {h['risk_label']} | {recs} |\n"
 
         triggered_md = "\n".join(
             f"- **{r['severity']}** — {r['message']}" for r in triggered
@@ -857,21 +639,37 @@ with tab_analysis:
         rec   = breakdown.get('recall_contribution', '?')
         aucc  = breakdown.get('auc_contribution', '?')
         pen   = breakdown.get('total_penalty', '?')
+        score = breakdown.get('final_score', '?')
 
-        full_report_md = f"""# NanoBot Model Performance Report
+        export_md = f"""# NanoBot Model Performance Report
 **Generated:** {datetime.now(timezone.utc).isoformat()} UTC
 **Session:** {st.session_state.session_id}
+**Risk Level:** {risk['level']} {risk['color']}
+**Risk Score:** {score}
 
 ---
 
-## Risk Assessment
-**{color} {lvl} Risk**  
-**Score: {score}**  
-*{risk['summary']}*
+## Risk Score Breakdown
 
-*Note: Risk is determined by a deterministic weighted rule engine + regulatory matrix, independent of LLM analysis.*
+Formula: `score = 0.40×F1 + 0.25×Precision + 0.20×Recall + 0.15×AUC + penalties`
 
-**🔍 {len(triggered)} risk rule(s) triggered.**
+```
+= {f1c} + {prec} + {rec} + {aucc} + ({pen}) = {score}
+```
+
+---
+
+## Regulatory & Compliance Analysis
+
+| Metric | Threshold | Value | Regulatory Reference | Risk Label | Remediation |
+|--------|-----------|-------|----------------------|------------|-------------|
+{reg_rows if reg_rows else "| — | — | — | No violations triggered | — | — |"}
+
+---
+
+## Risk Rules Triggered
+
+{triggered_md}
 
 ---
 
@@ -881,18 +679,17 @@ with tab_analysis:
 
 ---
 
+## Recommendations
+
+{recs_md}
+
+---
+
 ## Disclaimer
 *Risk level determined by deterministic weighted rule engine — not LLM inference.*
 *Final deployment decision must be made by a qualified ML engineer and domain expert.*
 *Report generated by NanoBot PS2 — Giggso Build-Break Challenge*
 """
-        
-        # Convert markdown to HTML for robust rendering inside the styled div
-        analysis_html = markdown2.markdown(full_report_md, extras=["tables", "fenced-code-blocks"])
-        st.markdown(f'<div class="report-card">{analysis_html}</div>', unsafe_allow_html=True)
-        st.divider()
-
-        export_md = full_report_md
         # Side-by-side buttons
         btn_col1, btn_col2 = st.columns(2)
         with btn_col1:
@@ -922,30 +719,26 @@ with tab_chat:
         msg = msg.strip()
         if not msg:
             return
-            
-        # 4.3 Chat Rate limiting: strictly 1 message per second
-        _chat_now = time.time()
-        _last_msg_time = st.session_state.get("_last_msg_time", 0)
-        if _chat_now - _last_msg_time < 1.0:
-            st.error("Rate limit exceeded: 1 message per second allowed.")
-            return
-        st.session_state._last_msg_time = _chat_now
-        
         try:
             check_rate_limit(st.session_state.session_id)
             safe_msg = unbreakable_input_guard(msg)
-        except (SecurityError, ValueError) as e:
-            st.error("I can only help with the loaded ML metrics. Please ask about the data.")
-            log_event("chat_blocked", str(e), error=True)
+        except SecurityError as e:
+            st.error(str(e.public_msg))
+            log_event("chat_blocked", e.internal, error=True)
             return
 
         st.session_state.chat_history.append({"role": "user", "content": safe_msg})
 
         safe_hist = [
-            m for m in st.session_state.chat_history[-10:]
+            m for m in st.session_state.chat_history[-6:]
             if m["role"] in ("user", "assistant")
         ]
-        
+        history_text = "\n".join(
+            f"{'USER' if m['role']=='user' else 'NANOBOT'}: {m['content']}"
+            for m in safe_hist
+        )
+        context = f"Conversation so far:\n{history_text}\n\nRespond to the latest USER message only."
+        context = context[:2000]
         # Build rich chat context: metrics + risk engine output
         import json as _json
         risk_summary = {
@@ -970,19 +763,15 @@ with tab_chat:
             }, indent=2)
         system = chat_system(chat_context)
 
-        with st.spinner("NanoBot is thinking (Agentic Memory active)…"):
+        with st.spinner("NanoBot is thinking…"):
             try:
-                from nanobot_client import call_nanobot_chat
-                reply = run_async(call_nanobot_chat(system, safe_hist))
+                reply = run_async(call_nanobot(system, context))
                 st.session_state.chat_history.append({"role": "assistant", "content": reply})
                 log_event("chat", f"q={safe_msg[:40]}")
             except Exception as e:
                 err_msg = str(e)
                 if "429" in err_msg:
-                    if "daily" in err_msg.lower() or "requestsperday" in err_msg.lower():
-                        st.error("Gemini DAILY quota exhausted. Please use a different API key or wait until tomorrow.")
-                    else:
-                        st.error("Gemini rate limit hit (RPM). Please wait a moment and try again.")
+                    st.error("Rate limit hit. Please wait a moment and try again.")
                 else:
                     st.error(f"NanoBot unavailable: {err_msg[:120]}")
                 log_event("chat_error", err_msg, error=True)
@@ -1026,7 +815,7 @@ with tab_chat:
         cols = st.columns(2)
         for i, q in enumerate(suggestions):
             with cols[i % 2]:
-                if st.button(q, key=f"sugg_{i}", width="stretch"):
+                if st.button(q, key=f"sugg_{i}", use_container_width=True):
                     st.session_state["_pending_chat"] = q
                     st.rerun()
 
@@ -1040,7 +829,7 @@ with tab_chat:
                 label_visibility="collapsed",
             )
         with col_btn:
-            send = st.form_submit_button("Send", width="stretch")
+            send = st.form_submit_button("Send", use_container_width=True)
 
     if send and user_input:
         send_message(user_input)

@@ -8,8 +8,9 @@ Where: 0.0 ≤ all metrics ≤ 1.0, penalties ∈ [-0.45, 0]
 Output space: [0.0, 1.0] → Finite, predictable, deterministic
 """
 
-from __future__ import annotations
 from dataclasses import dataclass, field
+import uuid
+from datetime import datetime
 
 # ── Weights (must sum to 1.0) ─────────────────────────────────────────────────
 WEIGHTS = {
@@ -112,6 +113,8 @@ DECISION_TABLE = [
 
 @dataclass
 class RiskResult:
+    decision_id:      str
+    timestamp:        str
     score:            float
     level:            str
     color:            str
@@ -122,6 +125,7 @@ class RiskResult:
     recommendations:  list[str]
     red_team_tests:   list[dict]
     formula:          str
+    rule_trace:       list[dict]
     disclaimer:       str = (
         "Risk determined by fixed weighted formula + regulatory matrix. "
         "Not LLM inference. Human expert review required before deployment."
@@ -227,6 +231,8 @@ def run_weighted_risk(data: dict) -> dict:
     ]
 
     return {
+        "decision_id":       str(uuid.uuid4()),
+        "timestamp":         datetime.now().isoformat(),
         "score":             final_score,
         "level":             level,
         "color":             color,
@@ -245,6 +251,7 @@ def run_weighted_risk(data: dict) -> dict:
         "recommendations":   recs,
         "red_team_tests":    red_team,
         "triggered":         triggered_rules,
+        "rule_trace":        triggered_rules, # Direct alias for audit
         "formula":           f"score = 0.40×{m['f1']} + 0.25×{m['precision']} + 0.20×{m['recall']} + 0.15×{m['auc']} + ({total_penalty}) = {final_score}",
         "disclaimer":        "Risk determined by fixed weighted formula + regulatory matrix. Not LLM inference. Human expert review required before deployment.",
         "metrics_used":      m,

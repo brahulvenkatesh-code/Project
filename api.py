@@ -1,14 +1,18 @@
 import os
 import logging
+import json
 from fastapi import FastAPI, Request, Header, HTTPException
 from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from security import parse_and_validate, safe_token_compare
+from access_control import AccessManager, get_current_user_payload
+from nanobot_service import NanoBotService, bridge_risk_to_nanobot
 import jwt
 from datetime import datetime, timedelta, timezone
 import base64
+import uuid
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -59,21 +63,7 @@ async def strip_info_headers(request: Request, call_next):
         del response.headers["x-powered-by"]
     return response
 
-# ── Auth dependency ───────────────────────────────────────────────────────────
-def require_auth(authorization: str = Header(...)):
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Invalid token format")
-    token = authorization[7:]
-    
-    try:
-        # Decode and verify the JWT token
-        payload = jwt.decode(token, API_JWT_SECRET, algorithms=["HS256"])
-        if payload.get("sub") != API_USERNAME:
-            raise HTTPException(status_code=401, detail="Invalid token subject")
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token has expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+# Auth dependency removed in favor of access_control.py
 
 # ── Main endpoint ─────────────────────────────────────────────────────────────
 @app.post("/api/token")
@@ -93,35 +83,68 @@ async def login(request: Request, authorization: str = Header(None)):
     if not safe_token_compare(username, API_USERNAME) or not safe_token_compare(password, API_PASSWORD):
         raise HTTPException(status_code=401, detail="Invalid credentials")
         
-    # Generate JWT token valid for 1 hour
-    expiration = datetime.now(timezone.utc) + timedelta(hours=1)
-    payload = {
+    # Generate JWT token valid for 1 hour with Role
+    token_data = {
         "sub": username,
-        "exp": expiration
+        "role": "ADMIN" if username == "admin" else "USER"
     }
-    encoded_jwt = jwt.encode(payload, API_JWT_SECRET, algorithm="HS256")
+    encoded_jwt = AccessManager.create_access_token(token_data)
     
     return {"access_token": encoded_jwt, "token_type": "bearer"}
 
 @app.post("/api/analyze")
-@limiter.limit("5/minute")
-async def analyze(request: Request, authorization: str = Header(...)):
-    require_auth(authorization)
+@limiter.limit("20/minute")
+async def analyze(request: Request, authorization: str = Header(..., alias="Authorization")):
+    # Verify and check permission
+    user_payload = get_current_user_payload(authorization)
+    AccessManager.check_permissions(user_payload, "analyze")
+
     raw = await request.body()
     try:
         metrics = parse_and_validate(raw)        # raises on any violation
-    except ValueError as e:
+    except Exception as e:
         logger.warning(f"Validation fail: {e}")
         return JSONResponse(status_code=422, content={"error": "Invalid metric input"})
         
     from risk_engine import calculate_risk
-    # We use the calculate_risk helper which expects a dict
-    risk_score = calculate_risk(metrics)
+    # Get the deterministic score + audit trace
+    decision = calculate_risk(metrics)
     
+    # Audit log (append-only mock)
+    logger.info(f"AUDIT | Decision {decision['decision_id']} made by {user_payload.get('sub')} at {decision['timestamp']}")
+    logger.info(f"TRACE | Decision {decision['decision_id']}: {json.dumps(decision['rule_trace'])}")
+
     return {
         "status": "ok",
-        "risk_score": risk_score,
-        "metrics": metrics
+        "decision": decision
+    }
+
+@app.post("/api/explain")
+@limiter.limit("20/minute")
+async def explain(request: Request, authorization: str = Header(..., alias="Authorization")):
+    # Verify and check permission (Read-Only)
+    user_payload = get_current_user_payload(authorization)
+    
+    body = await request.json()
+    decision_snapshot = body.get("decision")
+    user_context = body.get("question", "")
+
+    if not decision_snapshot:
+        raise HTTPException(status_code=400, detail="Missing decision snapshot")
+
+    # Strict isolation: Use the read-only bridge
+    safe_snapshot = bridge_risk_to_nanobot(decision_snapshot)
+    
+    # Generate explanation via NanoBot Service
+    explanation = await NanoBotService.explain_decision(safe_snapshot, user_context)
+
+    # Log explanation event
+    logger.info(f"AUDIT | NanoBot accessed decision {safe_snapshot.get('decision_id')} requested by {user_payload.get('sub')}")
+
+    return {
+        "status": "ok",
+        "decision_id": safe_snapshot.get("decision_id"),
+        "explanation": explanation
     }
 
 @app.get("/health")
