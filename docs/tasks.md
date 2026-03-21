@@ -1,0 +1,36 @@
+# [AI Risk Governance System - Task List]
+
+- [x] **Design System Architecture & Threat Model**
+    - [x] Create STRIDE-based Threat Model
+    - [x] Design API & Network isolation strategy (Deterministic Risk Engine vs. NanoBot)
+- [x] **Deterministic Risk Engine (Core Decision System)**
+    - [x] Rule-based deterministic scoring logic
+    - [x] Decision snapshotting & Rule trace (machine-readable)
+    - [x] Version-controlled rule execution
+- [x] **NanoBot (LLM-based Explanation Layer)**
+    - [x] Strict read-only interaction with Risk Engine outputs
+    - [x] Input sanitization & prompt injection protection
+    - [x] Response templates & output filtering
+- [x] **Secure API & Access Control Layer**
+    - [x] API Gateway simulation (Rate limiting, IP throttling)
+    - [x] OAuth2/JWT implementation with role/attribute-based access control (RBAC+ABAC)
+    - [x] Zero Trust: Strict schema validation & least privilege
+- [x] **Data Security & Tamper-proof Audit**
+    - [x] Secure JSON/Log-based schema for decisions and user metadata
+    - [x] Signed audit logging & anomaly detection alerts
+- [x] **Marketplace & Distribution**
+    - [x] Create standalone /chat marketplace page
+    - [x] Optimize UI for external sharing (hidden sidebars, fixed input)
+- [x] **Security Hardening & Bug Fixes**
+    - [x] Resolve overly aggressive PII/Blocklist false positives
+    - [x] Fix missing symbol bugs in security.py
+- [x] **API Simplification & DX**
+    - [x] Implement in-memory DecisionStore for session-based chat
+    - [x] Support simplified `{"message": "...", "session_id": "..."}` payload
+- [x] **Security Testing & Verification**
+    - [x] Security-focused unit/integration tests
+    - [x] Fuzz testing for invalid inputs
+    - [x] Red-team attack simulations
+- [x] **Final Documentation & Deployment**
+    - [x] STRIDE Threat Model (Table)
+    - [x] Security Checklist & Deployment Guide
