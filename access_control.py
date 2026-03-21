@@ -67,8 +67,20 @@ class AccessManager:
             
         raise HTTPException(status_code=403, detail="Resource access denied (ABAC violation)")
 
-def get_current_user_payload(authorization: str = Header(...)):
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Invalid token format")
-    token = authorization[7:]
-    return AccessManager.verify_token(token)
+def get_current_user_payload(authorization: str):
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing authorization header")
+    
+    # Handle various prefix formats (Bearer, bearer, or none)
+    if authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+    else:
+        token = authorization.strip()
+    
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
