@@ -131,7 +131,7 @@ def check_pii(data: Any, path: str = "", _skip_key: bool = False) -> list:
 ALLOWED_KEYS = {
     # === Metadata ===
     "trinity_metadata", "schema_version", "generated_by", "report_id",
-    "evaluation_date", "model_type",
+    "evaluation_date", "model_type", "session_id",
     # === Model info ===
     "model_info", "name", "version", "framework", "algorithm", "task",
     "target_variable", "feature_count", "training_samples", "test_samples",

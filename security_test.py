@@ -79,6 +79,28 @@ async def test_nanobot_isolation():
     assert "explanation" in res_data
     print("[PASS] NanoBot: Explanation generated successfully.")
 
+async def test_simplified_api_chat():
+    """Verify that the simplified payload (session_id + message) works."""
+    token = AccessManager.create_access_token({"sub": "admin", "role": "ADMIN"})
+    session_id = "test-session-123"
+
+    # 1. First, provide metrics with session_id to /analyze
+    metrics_with_sid = VALID_METRICS.copy()
+    metrics_with_sid["session_id"] = session_id
+    res = client.post("/api/analyze", json=metrics_with_sid, headers={"Authorization": f"Bearer {token}"})
+    assert res.status_code == 200
+
+    # 2. Now call /explain with ONLY session_id and "message"
+    response = client.post("/api/explain", json={
+        "session_id": session_id,
+        "message": "Should I deploy this model?"
+    }, headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 200, f"Simplified API failed: {response.text}"
+    res_data = response.json()
+    assert "explanation" in res_data
+    print("[PASS] Simplified API: Session-based chat (message + session_id) successful.")
+
 def test_injection_protection():
     """Verify that prompt injection in metrics is blocked by the WAF."""
     token = AccessManager.create_access_token({"sub": "admin", "role": "ADMIN"})
@@ -96,6 +118,7 @@ if __name__ == "__main__":
     test_deterministic_risk()
     test_injection_protection()
     
-    # Run async test
+    # Run async tests
     asyncio.run(test_nanobot_isolation())
+    asyncio.run(test_simplified_api_chat())
     print("--- Security Verification Complete ---")

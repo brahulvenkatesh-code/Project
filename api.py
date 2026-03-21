@@ -21,7 +21,10 @@ logger = logging.getLogger("ps2-api")
 API_USERNAME = os.environ.get("API_USERNAME", "admin")
 API_PASSWORD = os.environ.get("API_PASSWORD", "supersecurepassword")
 API_JWT_SECRET = os.environ.get("API_JWT_SECRET", "my-super-secret-jwt-key")
-# ALLOWED_HOST removed for simplicity
+
+# ── Decision Bridge: Stores last decision per session for simplified chat ─────
+# In a real enterprise app, use Redis/Postgres. For this challenge: in-memory.
+DECISION_STORE: dict[str, dict] = {}
 
 app = FastAPI(docs_url=None, redoc_url=None)  # disable swagger in prod
 
@@ -114,6 +117,10 @@ async def analyze(request: Request, authorization: str = Header(..., alias="Auth
     logger.info(f"AUDIT | Decision {decision['decision_id']} made by {user_payload.get('sub')} at {decision['timestamp']}")
     logger.info(f"TRACE | Decision {decision['decision_id']}: {json.dumps(decision['rule_trace'])}")
 
+    # Store for simplified chat bridge
+    session_id = metrics.get("session_id", "default_session")
+    DECISION_STORE[session_id] = decision
+
     return {
         "status": "ok",
         "decision": decision
@@ -126,11 +133,20 @@ async def explain(request: Request, authorization: str = Header(..., alias="Auth
     user_payload = get_current_user_payload(authorization)
     
     body = await request.json()
+    
+    # Support both "question" and "message" keys for user convenience
+    user_context = body.get("message") or body.get("question", "")
+    session_id   = body.get("session_id")
     decision_snapshot = body.get("decision")
-    user_context = body.get("question", "")
+
+    # If no decision snapshot provided, try to look up from DecisionStore via session_id
+    if not decision_snapshot and session_id:
+        decision_snapshot = DECISION_STORE.get(session_id)
+        if not decision_snapshot:
+            raise HTTPException(status_code=404, detail="No recent decision found for this session_id. Run analysis first.")
 
     if not decision_snapshot:
-        raise HTTPException(status_code=400, detail="Missing decision snapshot")
+        raise HTTPException(status_code=400, detail="Missing decision snapshot or session_id")
 
     # Strict isolation: Use the read-only bridge
     safe_snapshot = bridge_risk_to_nanobot(decision_snapshot)
